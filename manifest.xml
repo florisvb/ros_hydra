@@ -1,0 +1,20 @@
+<package>
+  <description brief="ros_hydra">
+
+     ros_hydra
+
+  </description>
+  <author>Floris van Breugel</author>
+  <license>BSD</license>
+  <review status="unreviewed" notes=""/>
+  <url>http://ros.org/wiki/ros_hydra</url>
+  <depend package="std_msgs"/>
+  <depend package="rospy"/>
+  <depend package="roscpp"/>
+  <depend package="sensor_msgs"/>
+  <depend package="ros_flydra"/>
+  <depend package="floris_ros_flydra"/>
+
+</package>
+
+
