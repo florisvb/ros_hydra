@@ -5,6 +5,7 @@ from std_msgs.msg import *
 from ros_flydra.msg import *
 from geometry_msgs.msg import Point
 import time
+import numpy as np
 
 
 class MotorControl:
@@ -14,11 +15,28 @@ class MotorControl:
         # latest motor states  
         self.pos = 0
         self.vel = 0
+        self.pos_offset = 0
         
 
 class PanTiltFocusControl:
 
     def __init__(self, dummy = True):
+    
+        # flydra object stuff
+        self.pref_obj_id = None      
+        self.pref_obj_position = None
+        self.pref_obj_velocity = None
+        self.pref_obj_latency = None            
+        
+        # calibration info
+        self.calibration_raw_6d = None
+        self.dummy = dummy
+        self.calibrate()
+        
+        # motors:
+        self.pan = MotorControl('pan')
+        self.tilt = MotorControl('tilt')
+        self.focus = MotorControl('focus')
     
         ################################################
         # ROS stuff
@@ -29,6 +47,8 @@ class PanTiltFocusControl:
         rospy.Subscriber("pan_pos", Float64, self.pan_pos_callback)
         rospy.Subscriber("tilt_pos", Float64, self.tilt_pos_callback)
         rospy.Subscriber("focus_pos", Float64, self.focus_pos_callback)
+        rospy.Subscriber("wx_controller", String, self.wx_controller_callback)
+        
         
         # ros publishers
         self.pub_pan_ctrl = rospy.Publisher("pan_ctrl", Float64)
@@ -39,20 +59,7 @@ class PanTiltFocusControl:
         rospy.init_node('pantiltfocus_controller', anonymous=True)
         #################################################
         
-        # flydra object stuff
-        self.pref_obj_id = None      
-        self.pref_obj_position = None
-        self.pref_obj_velocity = None
-        self.pref_obj_latency = None            
         
-        # calibration info
-        self.calibration_raw_6d = None
-        self.dummy = dummy
-        
-        # motors:
-        self.pan = MotorControl('pan')
-        self.tilt = MotorControl('tilt')
-        self.focus = MotorControl('focus')
         
         
     #################  CALLBACKS  ####################################
@@ -63,7 +70,7 @@ class PanTiltFocusControl:
         for packet in super_packet.packets:
             print
             print '*'*80
-            print now-packet.acquire_stamp.to_seconds()
+            self.pref_obj_latency =  now-packet.acquire_stamp.to_seconds()
             for obj in packet.objects:
                 if obj.obj_id == self.pref_obj_id:
                     position = [obj.position.x, obj.position.y, obj.position.z]
@@ -71,9 +78,9 @@ class PanTiltFocusControl:
                     print
                     print position
                     print velocity
-                    self.pref_obj_position = None
-                    self.pref_obj_velocity = None
-                    self.pref_obj_latency = None
+                    self.pref_obj_position = position
+                    self.pref_obj_velocity = velocity
+        self.generate_control()
         
     def obj_id_callback(self, data):
         new_pref_obj_id = data.data
@@ -90,9 +97,37 @@ class PanTiltFocusControl:
     def focus_pos_callback(self, data):
         self.focus.pos = data.data
         
+    def wx_controller_callback(self,data):
+        
+        nudge = 0.005
+        
+        # up arrow
+        if data.data == 'up':
+            self.tilt.pos_offset = self.tilt.pos_offset + nudge
+            
+        # down arrow
+        if data.data == 'down':
+            self.tilt.pos_offset = self.tilt.pos_offset - nudge
+            
+        # right arrow
+        if data.data == 'right':
+            self.pan.pos_offset = self.pan.pos_offset + nudge
+            
+        # left arrow
+        if data.data == 'left':
+            self.pan.pos_offset = self.pan.pos_offset - nudge
+            
+        # clear
+        if data.data == 'clear':
+            self.tilt.pos_offset = 0
+            self.pan.pos_offset = 0
+        
+        self.generate_control()
+        
     #################  PTF CALIBRATION  ####################################
     
     def calibrate(self):
+        # need to check that we have enough points
         # do hydra cal stuff using self.calibration_raw_6d
         if self.dummy:
             self.Mhat = np.hstack((np.eye(3),np.array([[1],[1],[1]])))
@@ -118,6 +153,7 @@ class PanTiltFocusControl:
         fd = open( fname, mode='r')
         print 'loading calibration... '
         self.calibration_raw_6d = pickle.load(fd)
+        self.calibrate()
         
     def save_calibration_data_to_file(self, filename):
         print 'saving calibration to file: ', filename
@@ -129,8 +165,9 @@ class PanTiltFocusControl:
     def to_motor_coords(self, obj_pos):
         # takes 3D object as input, returns the three corresponding motor positions
         # back out desired motor positions
-        
-        q = self.Mhat*obj_pos.T
+        obj_pos = np.array(obj_pos)
+        #print obj_pos.shape, self.Mhat.shape
+        q = np.dot(self.Mhat,obj_pos.T)
         r = q[0]
         s = q[1]
         t = q[2]
@@ -140,7 +177,10 @@ class PanTiltFocusControl:
         tilt_pos = np.arctan2(v,1)
         focus_pos = 10 # focus function
         
-        return pan_pos, tilt_pos, focus_pos
+        motor_coords = [pan_pos, tilt_pos, focus_pos]
+        #print motor_coords
+        
+        return motor_coords
         
     def to_world_coords(self, pan_pos, tilt_pos, focus_pos):
         # takes three motor positions, and returns 3D point
@@ -155,21 +195,20 @@ class PanTiltFocusControl:
     def generate_control(self):
         
         # predict fly position:
-        self.predicted_obj_pos = self.pref_obj_position + self.pref_obj_velocity*self.pref_obj_latency
-        obj_pos = np.hstack((self.predicted_obj_pos, [1]))
-        
-        
-    
-        # still need focus
-        
-        self.pan.generate_control()
-        self.tilt.generate_control()
-        
-        self.pub_pan_ctrl.publish(Float64(self.pan.vel))
-        self.pub_tilt_ctrl.publish(Float64(self.tilt.vel))
-        
-        
-            
+        if self.pref_obj_id is not None:
+            self.predicted_obj_pos = self.pref_obj_position + self.pref_obj_velocity*self.pref_obj_latency
+            obj_pos = np.hstack((self.predicted_obj_pos, [1]))
+        else:
+            obj_pos = [1,1,1,1]
+        m_offset = np.array([self.pan.pos_offset, self.tilt.pos_offset, self.focus.pos_offset])
+        m_des_pos = self.to_motor_coords(obj_pos) + m_offset
+
+        #print self.to_motor_coords(obj_pos)
+        # send out control signal
+        if 1:
+            self.pub_pan_ctrl.publish(Float64(m_des_pos[0]))
+            self.pub_tilt_ctrl.publish(Float64(m_des_pos[1]))
+            self.pub_focus_ctrl.publish(Float64(m_des_pos[2]))
                 
         
     def reset(self):
