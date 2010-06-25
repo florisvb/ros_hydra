@@ -14,7 +14,7 @@
   <depend package="sensor_msgs"/>
   <depend package="ros_flydra"/>
   <depend package="floris_ros_flydra"/>
-  <depend package="joystick_ps3"/>
+  <depend package="ps3_interpreter"/>
 </package>
 
 
