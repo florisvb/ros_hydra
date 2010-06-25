@@ -3,7 +3,7 @@ import roslib; roslib.load_manifest('ros_hydra')
 import rospy
 from std_msgs.msg import *
 from ros_flydra.msg import *
-from ps3_interpreter.msg import ps3values
+from joystick_ps3.msg import ps3values
 from geometry_msgs.msg import Point
 import time
 import numpy as np
