@@ -58,12 +58,18 @@ class MotorCom:
         if self.motor == 'pan':
             self.damping = 0.02
             self.gain = 15
+            self.limit_lo = -1
+            self.limit_hi = 1
         if self.motor == 'tilt':
             self.damping = 0.02
             self.gain = 15
+            self.limit_lo = -1
+            self.limit_hi = 1
         if self.motor == 'focus':
             self.damping = 0.02
             self.gain = 15
+            self.limit_lo = 0
+            self.limit_hi = 10
         
         self.direction = 0
         
@@ -91,6 +97,9 @@ class MotorCom:
 
     def ctrl_callback(self, data):
         m_des_pos = data.data
+        if m_des_pos < self.limit_lo: m_des_pos = self.limit_lo
+        if m_des_pos > self.limit_hi: m_des_pos = self.limit_hi
+             
         #print self.pos
         
         if self.dummy is True:
