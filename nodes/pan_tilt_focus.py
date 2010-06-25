@@ -23,6 +23,7 @@ class PTMotor:
         self.vel = 0
         self.pos_offset = 0
         self.ps3_gain = 0.01
+        self.home = 0
         
 class FocusMotor:
     def __init__(self):
@@ -32,6 +33,7 @@ class FocusMotor:
         self.vel = 0
         self.pos_offset = 0
         self.ps3_gain = 0.01
+        self.home = 0
         
         # motor calibration values
         self.coeffs = [1, 0, 0]
@@ -140,8 +142,7 @@ class PanTiltFocusControl:
                 self.tilt.pos_offset = 0
                 self.pan.pos_offset = 0
 
-        # R2 + right joystick: focus
-        if ps3values.R2 < 0.9:
+            # right joystick: focus
             self.focus.pos_offset = self.focus.pos_offset + ps3values.joyright_y*self.focus.ps3_gain
             if self.focus.pos_offset > 1: self.focus.pos_offset = 1
             if self.focus.pos_offset < -1: self.focus.pos_offset = -1
@@ -150,6 +151,31 @@ class PanTiltFocusControl:
             
             if ps3values.start is True:
                 self.focus.pos_offset = 0
+                
+        # R2: move motor home position
+        if ps3values.R2 < 0.9:
+            self.tilt.home = self.tilt.home + ps3values.joyleft_y*self.tilt.ps3_gain
+            self.pan.home = self.pan.home + ps3values.joyleft_x*self.pan.ps3_gain
+        
+            if self.tilt.home > 1: self.tilt.home = 1
+            if self.tilt.home < -1: self.tilt.home = -1
+            
+            if self.pan.home > 1: self.pan.home = 1
+            if self.pan.home < -1: self.pan.home = -1
+            
+            if ps3values.start is True:
+                self.tilt.home = 0
+                self.pan.home = 0
+
+            # right joystick: focus
+            self.focus.home = self.focus.home + ps3values.joyright_y*self.focus.ps3_gain
+            if self.focus.home > 1: self.focus.home = 1
+            if self.focus.home < -1: self.focus.home = -1
+            
+            print 'focusing!!', ps3values.joyright_y
+            
+            if ps3values.start is True:
+                self.focus.home = 0
         
         self.generate_control()
         
@@ -255,7 +281,7 @@ class PanTiltFocusControl:
             self.predicted_obj_pos = self.pref_obj_position + self.pref_obj_velocity*self.pref_obj_latency
             obj_pos = np.hstack((self.predicted_obj_pos, [1]))
         else:
-            obj_pos = np.array([0,0,0,1])
+            obj_pos = np.array([self.pan.home,self.tilt.home,self.focus.home,1])
         m_offset = np.array([self.pan.pos_offset, self.tilt.pos_offset, self.focus.pos_offset])
         m_des_pos = self.to_motor_coords(obj_pos) + m_offset
 
