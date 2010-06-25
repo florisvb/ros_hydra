@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-import roslib; roslib.load_manifest('floris_ros_flydra')
+import roslib; roslib.load_manifest('ros_hydra')
 import rospy
 from ros_flydra.msg import *
 from geometry_msgs.msg import Point
