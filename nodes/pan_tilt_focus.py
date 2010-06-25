@@ -36,7 +36,7 @@ class FocusMotor:
         self.home = 0
         
         # motor calibration values
-        self.coeffs = [1, 0, 0]
+        self.coeffs = [1, 0, .01]
         self.camera_center = [0,0,0]
         
     def calc_focus(self, distc):
@@ -85,6 +85,7 @@ class PanTiltFocusControl:
         self.pub_tilt_ctrl = rospy.Publisher("tilt_ctrl", Float64)
         self.pub_focus_ctrl = rospy.Publisher("focus_ctrl", Float64)
         self.pub_ptf_3d = rospy.Publisher("ptf_3d", Point)
+        self.pub_ptf_home = rospy.Publisher("ptf_home", Point)
         
         
         #################################################
@@ -158,7 +159,7 @@ class PanTiltFocusControl:
             self.pan.home = self.pan.home + ps3values.joyleft_x*self.pan.ps3_gain
         
             if self.tilt.home > 1: self.tilt.home = 1
-            if self.tilt.home < -1: self.tilt.home = -1
+            if self.tilt.home < 0: self.tilt.home = 0
             
             if self.pan.home > 1: self.pan.home = 1
             if self.pan.home < -1: self.pan.home = -1
@@ -176,7 +177,9 @@ class PanTiltFocusControl:
             
             if ps3values.start is True:
                 self.focus.home = 0
-        
+                
+            self.pub_ptf_home.publish(Point(self.pan.home, self.tilt.home, self.focus.home))
+
         self.generate_control()
         
     #################  PTF CALIBRATION  ####################################
@@ -280,23 +283,25 @@ class PanTiltFocusControl:
             print self.pref_obj_id, self.pref_obj_position, self.pref_obj_velocity, self.pref_obj_latency
             self.predicted_obj_pos = self.pref_obj_position + self.pref_obj_velocity*self.pref_obj_latency
             obj_pos = np.hstack((self.predicted_obj_pos, [1]))
+            motor_pos = self.to_motor_coords(obj_pos)
         else:
-            obj_pos = np.array([self.pan.home,self.tilt.home,self.focus.home,1])
+            motor_pos = np.array([self.pan.home,self.tilt.home,self.focus.home])
         m_offset = np.array([self.pan.pos_offset, self.tilt.pos_offset, self.focus.pos_offset])
-        m_des_pos = self.to_motor_coords(obj_pos) + m_offset
+        m_des_pos = motor_pos + m_offset
+        print '*'*80
+        print m_des_pos
+        
 
         #print self.to_motor_coords(obj_pos)
         # send out control signal
         if 1:
-            print
-            print '*'*80
-            print m_des_pos[0]
             self.pub_pan_ctrl.publish(Float64(m_des_pos[0]))
             self.pub_tilt_ctrl.publish(Float64(m_des_pos[1]))
             self.pub_focus_ctrl.publish(Float64(m_des_pos[2]))
             
         # publish best knowledge of points - should be a steady stream if the ps3 controller is running, otherwise should be in the pan, tilt, focus, position callbacks, but currently that would lead to three callbacks, which is ugly.
-        self.pub_ptf_3d.publish(Point(self.pan.pos, self.tilt.pos, self.focus.pos))
+        #self.pub_ptf_3d.publish(Point(self.pan.pos, self.tilt.pos, self.focus.pos))
+        self.to_world_coords(self.pan.pos, self.tilt.pos, self.focus.pos)
                 
         
     def reset(self):
