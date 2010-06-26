@@ -179,6 +179,16 @@ class PanTiltFocusControl:
                 self.focus.home = 0
                 
             self.pub_ptf_home.publish(Point(self.pan.home, self.tilt.home, self.focus.home))
+            
+        # L1: calibration
+        if ps3values.L1 is True:
+            
+            if ps3values.select is True:
+                self.save_calibration_data()
+            if ps3values.start is True:
+                self.calibrate()
+            if ps3values.R1 is True:
+                self.save_calibration_data_to_file()
 
         self.generate_control()
         
@@ -217,14 +227,18 @@ class PanTiltFocusControl:
         distc = scipy.linalg.norm( pos_3d-self.camera_center ) # (might need to check orientation of vectors)
         return distc
             
-    def load_calibration_data(self, filename):
+    def load_calibration_data(self, filename=None):
+        if filename is None:
+            print 'NEED FILENAME'
         fname = (filename)
         fd = open( fname, mode='r')
         print 'loading calibration... '
         self.calibration_raw_6d = pickle.load(fd)
         self.calibrate()
         
-    def save_calibration_data_to_file(self, filename):
+    def save_calibration_data_to_file(self, filename=None):
+        if filename is None:
+            filename = time.strftime("ptf_calibration_%Y%m%d_%H%M%S",time.localtime())
         print 'saving calibration to file: ', filename
         fname = (filename)  
         fd = open( fname, mode='w' )
@@ -270,7 +284,10 @@ class PanTiltFocusControl:
         q = np.array([r,s,t])
         
         pos_3d = np.dot(self.Mhat3x3inv, q-self.Mhat3x1)
+        print pos_3d
+        print u,v,t, focus_pos
         self.pub_ptf_3d.publish(Point(pos_3d[0], pos_3d[1], pos_3d[2]))
+        
         
         return pos_3d
             
