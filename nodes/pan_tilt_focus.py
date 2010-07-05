@@ -48,25 +48,25 @@ class FocusMotor:
         self.home = 0
         
         # motor calibration values
-        self.coeffs = [1, 0, 0]
+        self.coeffs = [1, 0.01]
         
-    def calc_focus(self, distc):
+    def test_calc_focus(self, distc):
         focus_pos = self.coeffs[0] / (self.coeffs[1] + distc) + self.coeffs[2]
         #print focus_pos, distc, self.coeffs
         return focus_pos
         
-    def calc_distc_from_focus(self, focus_pos):
+    def test_calc_distc_from_focus(self, focus_pos):
         distc = self.coeffs[0] / (focus_pos - self.coeffs[2]) - self.coeffs[1]
         return distc
         
-    def fmin_func(self, coeffs):
+    def test_fmin_func(self, coeffs):
         focus = coeffs[0] / (self.distc+coeffs[1]) + coeffs[2]
         err = focus - self.data[:,2]
         abs_err = np.abs(err)
         err_sum = np.sum(abs_err)
         return err_sum
         
-    def calibrate(self,data, camera_center, plot=1, fig = None):
+    def test_calibrate(self,data, camera_center, plot=1, fig = None):
         print 'calibrating'
         # data structure: [m1,m2,focus,x,y,z]
         self.data = data
@@ -80,11 +80,11 @@ class FocusMotor:
         focus = self.data[:,2]
         
         # fit a/(x) + c
-        self.coeffs = np.polyfit(self.distc**(-1), focus, 1)
+        coeffs = np.polyfit(self.distc**(-1), focus, 1)
         ## now try fmin fit using coeffs as seed ##
         seed = np.zeros(3)
-        seed[0] = self.coeffs[0]
-        seed[2] = self.coeffs[1]
+        seed[0] = coeffs[0]
+        seed[2] = coeffs[1]
         
         tmp = scipy.optimize.fmin( self.fmin_func, seed, full_output = 1, disp=0)
         self.coeffs = tmp[0]
@@ -101,11 +101,54 @@ class FocusMotor:
             plt.xlabel('distance to camera center, m')
             plt.ylabel('focus motor setting, radians')
             plt.plot(xi,yi)
+            #plt.show()
+            print 'plotted focus'
+        
+        return 1
+        
+    def calc_focus(self, distc):
+        focus_pos = distc*self.coeffs[0] + self.coeffs[1]
+        #print focus_pos, distc, self.coeffs
+        return focus_pos
+        
+    def calc_distc_from_focus(self, focus_pos):
+        distc = (focus_pos - self.coeffs[1]) / self.coeffs[0]
+        return distc
+        
+    def calibrate(self,data, camera_center, plot=1, fig = None):
+        print 'calibrating'
+        # data structure: [m1,m2,focus,x,y,z]
+        self.data = data
+        
+        # calculate distances
+        print 'calculating distances'
+        self.distc = np.zeros(self.data.shape[0])
+        for i in range(self.data.shape[0]):
+            self.distc[i] = scipy.linalg.norm( self.data[i,3:6] - camera_center)
+            
+        focus = self.data[:,2]
+        
+        # fit d*(x) + c
+        self.coeffs = np.polyfit(self.distc, focus, 1)
+
+        print 'test coefficients: ', self.coeffs
+                
+        if plot == 1:
+            if fig is None:    
+                fig = plt.figure(2)
+            plt.scatter(self.distc,focus)
+            xi = np.linspace(min(self.distc),max(self.distc),50)
+            yi = [self.calc_focus(x) for x in xi]
+            
+            plt.title('TEST Calibration data for Pan Tilt Focus')
+            plt.xlabel('distance to camera center, m')
+            plt.ylabel('focus motor setting, radians')
+            plt.plot(xi,yi)
             plt.show()
             print 'plotted focus'
         
         return 1
-
+        
 class PanTiltFocusControl:
 
     def __init__(self, dummy = True, calibration_filename=None):
@@ -223,27 +266,18 @@ class PanTiltFocusControl:
             self.tilt.home = self.tilt.home + ps3values.joyleft_y*self.tilt.ps3_gain
             self.pan.home = self.pan.home + ps3values.joyleft_x*self.pan.ps3_gain
         
-            if self.tilt.home > 1: self.tilt.home = 1
-            if self.tilt.home < 0: self.tilt.home = 0
-            
-            if self.pan.home > 1: self.pan.home = 1
-            if self.pan.home < -1: self.pan.home = -1
-            
             if ps3values.start is True:
                 self.tilt.home = 0
                 self.pan.home = 0
 
             # right joystick: focus
             self.focus.home = self.focus.home + ps3values.joyright_y*self.focus.ps3_gain
-            if self.focus.home > 1: self.focus.home = 1
-            if self.focus.home < -1: self.focus.home = -1
-            
-            print 'focusing!!', ps3values.joyright_y
             
             if ps3values.start is True:
                 self.focus.home = 0
                 
-            self.pub_ptf_home.publish(Point(self.pan.home, self.tilt.home, self.focus.home))
+            home_3d = self.to_world_coords(self.pan.home, self.tilt.home, self.focus.home, pub=False)
+            self.pub_ptf_home.publish(Point(home_3d[0], home_3d[1], home_3d[2]))
             
         # L1: calibration
         if ps3values.L1 is True:
@@ -283,7 +317,9 @@ class PanTiltFocusControl:
         #self.Mhat3x1 = self.Mhat[:,3] # this is the rightmost vertical vector of Mhat
             
         self.camera_center = np.array(camera_math.center(self.Mhat).T[0])
-        self.focus.calibrate(self.calibration_raw_6d, self.camera_center)
+        if not self.dummy:
+            self.focus.calibrate(self.calibration_raw_6d, self.camera_center)
+            #self.focus.test_calibrate(self.calibration_raw_6d, self.camera_center)
         print 'camera_center: ', self.camera_center
         self.pub_camera_center.publish(Point(self.camera_center[0], self.camera_center[1], self.camera_center[2]))
         return
@@ -348,7 +384,7 @@ class PanTiltFocusControl:
         u = r/t 
         distc = self.calc_distc(obj_pos)
         #distc = np.linalg.norm(q) # equivalent to above function call
-        print 'pos_3d: ', obj_pos
+        #print 'pos_3d: ', obj_pos
         #print 'distc: ', r,s,t
         pan_pos = np.arctan2(u,1) # focal length of 1, arbitrary
         tilt_pos = np.arctan2(v,1)
@@ -381,7 +417,7 @@ class PanTiltFocusControl:
         direction = c2-c1
         direction = direction/numpy.sqrt(numpy.sum(direction**2))
         pos_3d = c1+direction*distc
-        print pos_3d
+        #print pos_3d
         #print pos_3d
         if pub is True:
             #print pan_pos, tilt_pos, focus_pos, pos_3d
@@ -403,7 +439,7 @@ class PanTiltFocusControl:
             #print obj_pos, '*'
             #except:
                 #self.reset()
-        if self.pref_obj_id is None:
+        if self.pref_obj_id is None or self.dummy is True:
             motor_pos = np.array([self.pan.home,self.tilt.home,self.focus.home])
         m_offset = np.array([self.pan.pos_offset, self.tilt.pos_offset, self.focus.pos_offset])
         m_des_pos = motor_pos + m_offset

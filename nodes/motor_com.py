@@ -71,8 +71,8 @@ class MotorCom:
         if self.motor == 'focus':
             self.damping = 0.5
             self.gain = 5
-            self.limit_lo = -10
-            self.limit_hi = 10
+            self.limit_lo = -1000
+            self.limit_hi = 1000
             self.limit_buffer = 0.2
         
         self.direction = 0
@@ -112,7 +112,7 @@ class MotorCom:
                 if self.motor != 'focus':
                     self.limit_lo, self.limit_hi = self.m.findzeros()
                 if self.motor == 'focus':
-                    self.limit_lo, self.limit_hi = self.m.setzero(pos=.5, limithi=6)
+                    self.limit_lo, self.limit_hi = self.m.setzero(pos=.5, limithi=4)
                     time.sleep(1)
                 self.limit_lo = self.limit_lo - np.sign(self.limit_lo)*self.limit_buffer
                 self.limit_hi = self.limit_hi - np.sign(self.limit_hi)*self.limit_buffer
