@@ -9,6 +9,7 @@ import time
 import numpy as np
 import numpy as numpy
 import pickle
+import copy
 
 import matplotlib.pyplot as plt
 import scipy
@@ -16,6 +17,7 @@ import scipy
 import sys
 sys.path.append("/home/floris/src/floris")
 import camera_math
+import ptf_camera_classes
 
 from optparse import OptionParser
 
@@ -25,130 +27,6 @@ def as_column(x):
         x = np.reshape(x, (x.shape[0],1) )
     return x
 
-class PTMotor:
-    def __init__(self, motor):
-    
-        self.motor = motor
-        # latest motor states  
-        self.pos = 0
-        self.vel = 0
-        self.pos_offset = 0
-        if self.motor == 'tilt': self.ps3_gain = -0.02
-        if self.motor == 'pan': self.ps3_gain = -0.02 
-        self.home = 0
-        
-class FocusMotor:
-    def __init__(self):
-    
-        # latest motor states  
-        self.pos = 0
-        self.vel = 0
-        self.pos_offset = 0
-        self.ps3_gain = 0.05
-        self.home = 0
-        
-        # motor calibration values
-        self.coeffs = [1, 0.01]
-        
-    def test_calc_focus(self, distc):
-        focus_pos = self.coeffs[0] / (self.coeffs[1] + distc) + self.coeffs[2]
-        #print focus_pos, distc, self.coeffs
-        return focus_pos
-        
-    def test_calc_distc_from_focus(self, focus_pos):
-        distc = self.coeffs[0] / (focus_pos - self.coeffs[2]) - self.coeffs[1]
-        return distc
-        
-    def test_fmin_func(self, coeffs):
-        focus = coeffs[0] / (self.distc+coeffs[1]) + coeffs[2]
-        err = focus - self.data[:,2]
-        abs_err = np.abs(err)
-        err_sum = np.sum(abs_err)
-        return err_sum
-        
-    def test_calibrate(self,data, camera_center, plot=1, fig = None):
-        print 'calibrating'
-        # data structure: [m1,m2,focus,x,y,z]
-        self.data = data
-        
-        # calculate distances
-        print 'calculating distances'
-        self.distc = np.zeros(self.data.shape[0])
-        for i in range(self.data.shape[0]):
-            self.distc[i] = scipy.linalg.norm( self.data[i,3:6]-camera_center )
-            
-        focus = self.data[:,2]
-        
-        # fit a/(x) + c
-        coeffs = np.polyfit(self.distc**(-1), focus, 1)
-        ## now try fmin fit using coeffs as seed ##
-        seed = np.zeros(3)
-        seed[0] = coeffs[0]
-        seed[2] = coeffs[1]
-        
-        tmp = scipy.optimize.fmin( self.fmin_func, seed, full_output = 1, disp=0)
-        self.coeffs = tmp[0]
-        print 'coefficients: ', self.coeffs
-                
-        if plot == 1:
-            if fig is None:    
-                fig = plt.figure(1)
-            plt.scatter(self.distc,focus)
-            xi = np.linspace(min(self.distc),max(self.distc),50)
-            yi = [self.calc_focus(x) for x in xi]
-            
-            plt.title('Calibration data for Pan Tilt Focus')
-            plt.xlabel('distance to camera center, m')
-            plt.ylabel('focus motor setting, radians')
-            plt.plot(xi,yi)
-            #plt.show()
-            print 'plotted focus'
-        
-        return 1
-        
-    def calc_focus(self, distc):
-        focus_pos = distc*self.coeffs[0] + self.coeffs[1]
-        #print focus_pos, distc, self.coeffs
-        return focus_pos
-        
-    def calc_distc_from_focus(self, focus_pos):
-        distc = (focus_pos - self.coeffs[1]) / self.coeffs[0]
-        return distc
-        
-    def calibrate(self,data, camera_center, plot=1, fig = None):
-        print 'calibrating'
-        # data structure: [m1,m2,focus,x,y,z]
-        self.data = data
-        
-        # calculate distances
-        print 'calculating distances'
-        self.distc = np.zeros(self.data.shape[0])
-        for i in range(self.data.shape[0]):
-            self.distc[i] = scipy.linalg.norm( self.data[i,3:6] - camera_center)
-            
-        focus = self.data[:,2]
-        
-        # fit d*(x) + c
-        self.coeffs = np.polyfit(self.distc, focus, 1)
-
-        print 'test coefficients: ', self.coeffs
-                
-        if plot == 1:
-            if fig is None:    
-                fig = plt.figure(2)
-            plt.scatter(self.distc,focus)
-            xi = np.linspace(min(self.distc),max(self.distc),50)
-            yi = [self.calc_focus(x) for x in xi]
-            
-            plt.title('TEST Calibration data for Pan Tilt Focus')
-            plt.xlabel('distance to camera center, m')
-            plt.ylabel('focus motor setting, radians')
-            plt.plot(xi,yi)
-            plt.show()
-            print 'plotted focus'
-        
-        return 1
-        
 class PanTiltFocusControl:
 
     def __init__(self, dummy = True, calibration_filename=None):
@@ -168,9 +46,9 @@ class PanTiltFocusControl:
         self.ps3values_R1 = False
         
         # motors:
-        self.pan = PTMotor('pan')
-        self.tilt = PTMotor('tilt')
-        self.focus = FocusMotor()
+        self.pan = ptf_camera_classes.PTMotor('pan')
+        self.tilt = ptf_camera_classes.PTMotor('tilt')
+        self.focus = ptf_camera_classes.FocusMotor()
         
         ################################################
         # ROS stuff
@@ -198,7 +76,8 @@ class PanTiltFocusControl:
         
         if calibration_filename is not None:
             self.load_calibration_data(filename=calibration_filename)
-        self.calibrate()
+        else: 
+            self.calibrate()
         
     #################  CALLBACKS  ####################################
         
@@ -309,20 +188,68 @@ class PanTiltFocusControl:
         # do hydra cal stuff using self.calibration_raw_6d
         if self.dummy:
             self.Mhat = np.hstack((np.eye(3),np.array([[1],[1],[1]])))
+        
         if not self.dummy:
-            self.Mhat = camera_math.getMhat(self.calibration_raw_6d)
+            fast = 1
+            if fast == 1:
+                self.Mhat, residuals = camera_math.getMhat(self.calibration_raw_6d)
+                self.camera_center = np.array(camera_math.center(self.Mhat).T[0])
+            if fast != 1:
+                # add offsets to raw calibration data:
+                displacements = [0,0]
+                print 'finding optimum displacement values, this may take a while'
+                tmp = scipy.optimize.fmin( self.fmin_calibration_func, displacements, full_output = 1, disp=0)
+                self.pan.center_displacement = tmp[0][0]
+                self.tilt.center_displacement = tmp[0][1]
+                print 'optimal values: ', tmp[0]
+                print 'final residuals: ', tmp[1]
+                #self.Mhat = camera_math.getMhat(self.calibration_raw_6d)
             
         self.Mhatinv = np.linalg.pinv(self.Mhat)
         #self.Mhat3x3inv = np.linalg.inv(self.Mhat[:,0:3]) # this is the left 3x3 section of Mhat, inverted
         #self.Mhat3x1 = self.Mhat[:,3] # this is the rightmost vertical vector of Mhat
             
-        self.camera_center = np.array(camera_math.center(self.Mhat).T[0])
         if not self.dummy:
-            self.focus.calibrate(self.calibration_raw_6d, self.camera_center)
+            # for using fast=1 (ptf offset)
+            #actual_dist_to_obj = np.zeros(np.shape(self.calibration_raw_6d)[0])
+            #for i in range(len(actual_dist_to_obj)):
+            #    actual_dist_to_obj[i] = self.calc_actual_dist_to_object(self.calibration_raw_6d[i,3:6])
+            self.focus.calibrate(data=self.calibration_raw_6d, camera_center=self.camera_center)
             #self.focus.test_calibrate(self.calibration_raw_6d, self.camera_center)
         print 'camera_center: ', self.camera_center
         self.pub_camera_center.publish(Point(self.camera_center[0], self.camera_center[1], self.camera_center[2]))
         return
+        
+    def fmin_calibration_func(self,displacements):
+        
+        # initial Mhat / camera center guess:
+        Mhat, residuals = camera_math.getMhat(self.calibration_raw_6d)
+        displaced_calibration = copy.copy(self.calibration_raw_6d)
+        diff_Mhat = 100
+        
+        while diff_Mhat > 0.0005:
+            camera_center = np.array(camera_math.center(Mhat).T[0])
+            for i in range(displaced_calibration.shape[0]):
+                # for distance correction term, the pan portion uses the planar radial distance, the tilt portion uses the full distance
+                dist = np.linalg.norm(displaced_calibration[i,3:6] - camera_center)
+                planar_dist = np.cos(self.calibration_raw_6d[i,1])*dist
+                dist_arr = [planar_dist, dist]
+                for j in range(2):
+                    displaced_calibration[i,j] = displaced_calibration[i,j] + np.pi/2 - np.arccos(displacements[j]/dist_arr[j])
+            new_Mhat, new_residuals = camera_math.getMhat(displaced_calibration)
+            diff_Mhat = np.sum( np.abs(new_Mhat - Mhat) )
+            Mhat = new_Mhat
+            self.Mhat = Mhat
+            self.camera_center = camera_center
+            residuals = new_residuals
+        print residuals, self.camera_center
+        
+        return residuals
+        
+    def calc_actual_dist_to_object(self, pos_3d):
+        distc = self.calc_distc(pos_3d)
+        actual_dist_to_object = np.sqrt(distc**2 + self.pan.center_displacement**2 + self.tilt.center_displacement**2)
+        return actual_dist_to_object
         
     def save_calibration_data(self):
         # i think it's [motors, fly_position]
@@ -348,6 +275,7 @@ class PanTiltFocusControl:
     def calc_distc(self,pos_3d):
         #print pos_3d, self.camera_center
         distc = scipy.linalg.norm( pos_3d[0:3]-self.camera_center ) # (might need to check orientation of vectors)
+        
         return distc
             
     def load_calibration_data(self, filename=None):
@@ -382,7 +310,8 @@ class PanTiltFocusControl:
         t = q[2] # camera coord z
         v = s/t
         u = r/t 
-        distc = self.calc_distc(obj_pos)
+        #distc = self.calc_distc(obj_pos)
+        distc = self.calc_actual_dist_to_object(obj_pos)
         #distc = np.linalg.norm(q) # equivalent to above function call
         #print 'pos_3d: ', obj_pos
         #print 'distc: ', r,s,t
