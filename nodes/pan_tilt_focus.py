@@ -62,6 +62,21 @@ class PanTiltFocusControl:
         self.pub_camera_center = rospy.Publisher("camera_center", Point)
         self.pub_ptf_home = rospy.Publisher("ptf_home", Point)
         
+        
+        
+        
+        if calibration_filename is not None:
+            self.load_calibration_data(filename=calibration_filename)
+        else: 
+            self.calibrate()
+        
+        
+        
+        
+        
+        
+        
+        
         # ros subscribers
         rospy.Subscriber("flydra_mainbrain_super_packets", flydra_mainbrain_super_packet, self.flydra_callback)
         rospy.Subscriber("flydra_pref_obj_id", UInt32, self.obj_id_callback)
@@ -73,11 +88,6 @@ class PanTiltFocusControl:
         
         
         #################################################
-        
-        if calibration_filename is not None:
-            self.load_calibration_data(filename=calibration_filename)
-        else: 
-            self.calibrate()
         
     #################  CALLBACKS  ####################################
         
@@ -214,7 +224,7 @@ class PanTiltFocusControl:
             #actual_dist_to_obj = np.zeros(np.shape(self.calibration_raw_6d)[0])
             #for i in range(len(actual_dist_to_obj)):
             #    actual_dist_to_obj[i] = self.calc_actual_dist_to_object(self.calibration_raw_6d[i,3:6])
-            self.focus.calibrate(data=self.calibration_raw_6d, camera_center=self.camera_center)
+            self.focus.calibrate(data=self.calibration_raw_6d, camera_center=[ 0.26387096,  2.01547775, -6.21817195])
             #self.focus.test_calibrate(self.calibration_raw_6d, self.camera_center)
         print 'camera_center: ', self.camera_center
         self.pub_camera_center.publish(Point(self.camera_center[0], self.camera_center[1], self.camera_center[2]))
