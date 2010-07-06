@@ -327,7 +327,7 @@ class PanTiltFocusControl:
         #print 'distc: ', r,s,t
         pan_pos = np.arctan2(u,1) # focal length of 1, arbitrary
         tilt_pos = np.arctan2(v,1)
-        focus_pos = self.focus.calc_focus(distc)
+        focus_pos = self.focus.calc_focus(obj_pos)
         motor_coords = [pan_pos, tilt_pos, focus_pos]
         #print motor_coords
         
@@ -381,6 +381,8 @@ class PanTiltFocusControl:
         if self.pref_obj_id is None or self.dummy is True:
             motor_pos = np.array([self.pan.home,self.tilt.home,self.focus.home])
         m_offset = np.array([self.pan.pos_offset, self.tilt.pos_offset, self.focus.pos_offset])
+        print 'motor pos: ', motor_pos
+        print 'motor offset: ', m_offset
         m_des_pos = motor_pos + m_offset
         #print '*'*80
         #print m_des_pos
