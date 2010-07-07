@@ -112,10 +112,12 @@ class MotorCom:
                 if self.motor != 'focus':
                     self.limit_lo, self.limit_hi = self.m.findzeros()
                 if self.motor == 'focus':
-                    self.limit_lo, self.limit_hi = self.m.setzero(pos=.5, limithi=4)
+                    self.m.infinity(duration=2,speed=-10)
+                    self.limit_lo = 0.1
+                    self.limit_hi = 4
                     time.sleep(1)
-                self.limit_lo = self.limit_lo - np.sign(self.limit_lo)*self.limit_buffer
-                self.limit_hi = self.limit_hi - np.sign(self.limit_hi)*self.limit_buffer
+                self.limit_lo = self.limit_lo + self.limit_buffer
+                self.limit_hi = self.limit_hi - self.limit_buffer
                 print '*'*80
                 print 'limit_hi: ', self.limit_hi
                 print 'limit_lo: ', self.limit_lo
