@@ -201,6 +201,7 @@ class PanTiltFocusControl:
         # do hydra cal stuff using self.calibration_raw_6d
         if self.dummy:
             self.Mhat = np.hstack((np.eye(3),np.array([[1],[1],[1]])))
+            self.camera_center = [0,0,0]
         
         if not self.dummy:
             points3D = cvNumpy.array_to_mat(np.asarray( self.data[:,3:6] ))
