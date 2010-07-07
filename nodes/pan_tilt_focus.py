@@ -11,6 +11,9 @@ import numpy as numpy
 import pickle
 import copy
 
+import cvNumpy
+import cv
+
 import matplotlib.pyplot as plt
 import scipy
 
@@ -190,20 +193,26 @@ class PanTiltFocusControl:
             self.Mhat = np.hstack((np.eye(3),np.array([[1],[1],[1]])))
         
         if not self.dummy:
-            fast = 1
-            if fast == 1:
-                self.Mhat, residuals = camera_math.getMhat(self.calibration_raw_6d)
-                self.camera_center = np.array(camera_math.center(self.Mhat).T[0])
-            if fast != 1:
-                # add offsets to raw calibration data:
-                displacements = [0,0]
-                print 'finding optimum displacement values, this may take a while'
-                tmp = scipy.optimize.fmin( self.fmin_calibration_func, displacements, full_output = 1, disp=0)
-                self.pan.center_displacement = tmp[0][0]
-                self.tilt.center_displacement = tmp[0][1]
-                print 'optimal values: ', tmp[0]
-                print 'final residuals: ', tmp[1]
-                #self.Mhat = camera_math.getMhat(self.calibration_raw_6d)
+            points3D = cvNumpy.array_to_mat(np.asarray( self.data[:,3:6] ))
+            points2D = cvNumpy.array_to_mat(np.asarray( np.tan( self.data[:,0:2] ) ))
+            K = cvNumpy.array_to_mat(np.eye(3))
+            rvec = cvNumpy.array_to_mat(np.zeros(3))
+            tvec = cvNumpy.array_to_mat(np.zeros(3))
+            distCoeffs = cvNumpy.array_to_mat(np.zeros(4))
+            cv.FindExtrinsicCameraParams2(points3D, points2D, K, distCoeffs, rvec, tvec)
+            
+            # convert rotation vector to rotation matrix
+            rmat = cvNumpy.array_to_mat(np.zeros([3,3]))
+            cv.Rodrigues2( rvec, rmat )
+            
+            # generate P matrix
+            self.R = cvNumpy.mat_to_array(rmat)
+            self.t = cvNumpy.mat_to_array(tvec)
+            self.K = cvNumpy.mat_to_array(K)
+            Rt = np.hstack((self.R,self.t.T))
+            self.P = np.dot( self.K, Rt )
+            self.Mhat = self.P
+            self.camera_center = camera_math.center(self.P)[:,0]
             
         self.Mhatinv = np.linalg.pinv(self.Mhat)
         #self.Mhat3x3inv = np.linalg.inv(self.Mhat[:,0:3]) # this is the left 3x3 section of Mhat, inverted
