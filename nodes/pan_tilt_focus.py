@@ -49,6 +49,7 @@ class PanTiltFocusControl:
         self.ps3values_select = False
         self.ps3values_start = False
         self.ps3values_R1 = False
+        self.ps3values = None
         
         # motors:
         self.pan = ptf_camera_classes.PTMotor('pan')
@@ -151,30 +152,32 @@ class PanTiltFocusControl:
             if ps3values.start is True:
                 self.focus.pos_offset = 0
                 
-            # button presses
-            nudge_pan = 0.05*np.sign(self.pan.ps3_gain)*np.pi/180.0
-            nudge_tilt = -0.05*np.sign(self.tilt.ps3_gain)*np.pi/180.0
-            nudge_focus = 0.2*np.sign(self.focus.ps3_gain)*np.pi/180.0
-            if ps3values.up is False:
-                if self.ps3values.up is True:
-                    self.tilt.pos_offset += nudge_tilt
-            if ps3values.down is False:
-                if self.ps3values.down is True:
-                    self.tilt.pos_offset -= nudge_tilt
+            if self.ps3values is not None:
                     
-            if ps3values.right is False:
-                if self.ps3values.right is True:
-                    self.pan.pos_offset += nudge_pan
-            if ps3values.left is False:
-                if self.ps3values.left is True:
-                    self.pan.pos_offset -= nudge_pan
-                    
-            if ps3values.triangle is False:
-                if self.ps3values.triangle is True:
-                    self.focus.pos_offset += nudge_focus
-            if ps3values.x is False:
-                if self.ps3values.x is True:
-                    self.focus.pos_offset -= nudge_focus
+                # button presses
+                nudge_pan = 0.05*np.sign(self.pan.ps3_gain)*np.pi/180.0
+                nudge_tilt = -0.05*np.sign(self.tilt.ps3_gain)*np.pi/180.0
+                nudge_focus = 0.2*np.sign(self.focus.ps3_gain)*np.pi/180.0
+                if ps3values.up is False:
+                    if self.ps3values.up is True:
+                        self.tilt.pos_offset += nudge_tilt
+                if ps3values.down is False:
+                    if self.ps3values.down is True:
+                        self.tilt.pos_offset -= nudge_tilt
+                        
+                if ps3values.right is False:
+                    if self.ps3values.right is True:
+                        self.pan.pos_offset += nudge_pan
+                if ps3values.left is False:
+                    if self.ps3values.left is True:
+                        self.pan.pos_offset -= nudge_pan
+                        
+                if ps3values.triangle is False:
+                    if self.ps3values.triangle is True:
+                        self.focus.pos_offset += nudge_focus
+                if ps3values.x is False:
+                    if self.ps3values.x is True:
+                        self.focus.pos_offset -= nudge_focus
                 
                 
                 

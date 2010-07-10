@@ -59,19 +59,19 @@ class MotorCom:
         
         # motor control characteristics 
         if self.motor == 'pan':
-            self.damping = 0.1
+            self.damping = 0.2
             self.gain = 10
             self.limit_lo = -1
             self.limit_hi = 1
             self.limit_buffer = 0.2
         if self.motor == 'tilt':
-            self.damping = 0.1
+            self.damping = 0.2
             self.gain = 10
             self.limit_lo = -1
             self.limit_hi = 1
             self.limit_buffer = 0.2
         if self.motor == 'focus':
-            self.damping = 0.1
+            self.damping = 0.2
             self.gain = 10
             self.limit_lo = -1000
             self.limit_hi = 1000
