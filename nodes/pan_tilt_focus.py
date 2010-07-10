@@ -3,6 +3,7 @@ import roslib; roslib.load_manifest('ros_hydra')
 import rospy
 from std_msgs.msg import *
 from ros_flydra.msg import *
+from ros_hydra.msg import motorcom, motorctrl
 from joystick_ps3.msg import ps3values
 from geometry_msgs.msg import Point
 import time
@@ -11,7 +12,7 @@ import numpy as numpy
 import pickle
 import copy
 
-import cvNumpy
+
 import cv
 
 import matplotlib.pyplot as plt
@@ -20,6 +21,7 @@ import scipy
 import sys
 sys.path.append("/home/floris/src/floris")
 import camera_math
+import cvNumpy
 import ptf_camera_classes
 
 from optparse import OptionParser
@@ -58,9 +60,9 @@ class PanTiltFocusControl:
         rospy.init_node('pantiltfocus_controller', anonymous=True)
         
         # ros publishers
-        self.pub_pan_ctrl = rospy.Publisher("pan_ctrl", Float64)
-        self.pub_tilt_ctrl = rospy.Publisher("tilt_ctrl", Float64)
-        self.pub_focus_ctrl = rospy.Publisher("focus_ctrl", Float64)
+        self.pub_pan_ctrl = rospy.Publisher("pan_ctrl", motorctrl)
+        self.pub_tilt_ctrl = rospy.Publisher("tilt_ctrl", motorctrl)
+        self.pub_focus_ctrl = rospy.Publisher("focus_ctrl", motorctrl)
         self.pub_ptf_3d = rospy.Publisher("ptf_3d", Point)
         self.pub_camera_center = rospy.Publisher("camera_center", Point)
         self.pub_ptf_home = rospy.Publisher("ptf_home", Point)
@@ -70,8 +72,9 @@ class PanTiltFocusControl:
         
         if calibration_filename is not None:
             self.load_calibration_data(filename=calibration_filename)
-        else: 
-            self.calibrate()
+            if np.shape(self.calibration_raw_6d)[0] <= 4:
+                self.dummy = True
+        self.calibrate()
         
         
         
@@ -83,9 +86,9 @@ class PanTiltFocusControl:
         # ros subscribers
         rospy.Subscriber("flydra_mainbrain_super_packets", flydra_mainbrain_super_packet, self.flydra_callback)
         rospy.Subscriber("flydra_pref_obj_id", UInt32, self.obj_id_callback)
-        rospy.Subscriber("pan_pos", Float64, self.pan_pos_callback)
-        rospy.Subscriber("tilt_pos", Float64, self.tilt_pos_callback)
-        rospy.Subscriber("focus_pos", Float64, self.focus_pos_callback)
+        rospy.Subscriber("pan_pos", motorcom, self.pan_pos_callback)
+        rospy.Subscriber("tilt_pos", motorcom, self.tilt_pos_callback)
+        rospy.Subscriber("focus_pos", motorcom, self.focus_pos_callback)
         rospy.Subscriber("ps3_interpreter", ps3values, self.ps3_callback)
         
         
@@ -119,11 +122,14 @@ class PanTiltFocusControl:
         self.pref_obj_id = new_pref_obj_id
         
     def pan_pos_callback(self, data):
-        self.pan.pos = data.data
+        self.pan.pos = data.pos
+        self.pan.latency = data.latency
     def tilt_pos_callback(self, data):
-        self.tilt.pos = data.data
+        self.tilt.pos = data.pos
+        self.tilt.latency = data.latency
     def focus_pos_callback(self, data):
-        self.focus.pos = data.data
+        self.focus.pos = data.pos
+        self.focus.latency = data.latency
         
     def ps3_callback(self,ps3values):
     
@@ -134,12 +140,6 @@ class PanTiltFocusControl:
         
             self.tilt.pos_offset = self.tilt.pos_offset + ps3values.joyleft_y*self.tilt.ps3_gain*L2gain
             self.pan.pos_offset = self.pan.pos_offset + ps3values.joyleft_x*self.pan.ps3_gain*L2gain
-        
-            #if self.tilt.pos_offset > 1: self.tilt.pos_offset = 1
-            #if self.tilt.pos_offset < -1: self.tilt.pos_offset = -1
-            
-            #if self.pan.pos_offset > 1: self.pan.pos_offset = 1
-            #if self.pan.pos_offset < -1: self.pan.pos_offset = -1
             
             if ps3values.start is True:
                 self.tilt.pos_offset = 0
@@ -147,11 +147,38 @@ class PanTiltFocusControl:
 
             # right joystick: focus
             self.focus.pos_offset = self.focus.pos_offset + ps3values.joyright_y*self.focus.ps3_gain*L2gain
-            #if self.focus.pos_offset > 1: self.focus.pos_offset = 1
-            #if self.focus.pos_offset < -1: self.focus.pos_offset = -1
             
             if ps3values.start is True:
                 self.focus.pos_offset = 0
+                
+            # button presses
+            nudge_pan = 0.05*np.sign(self.pan.ps3_gain)*np.pi/180.0
+            nudge_tilt = -0.05*np.sign(self.tilt.ps3_gain)*np.pi/180.0
+            nudge_focus = 0.2*np.sign(self.focus.ps3_gain)*np.pi/180.0
+            if ps3values.up is False:
+                if self.ps3values.up is True:
+                    self.tilt.pos_offset += nudge_tilt
+            if ps3values.down is False:
+                if self.ps3values.down is True:
+                    self.tilt.pos_offset -= nudge_tilt
+                    
+            if ps3values.right is False:
+                if self.ps3values.right is True:
+                    self.pan.pos_offset += nudge_pan
+            if ps3values.left is False:
+                if self.ps3values.left is True:
+                    self.pan.pos_offset -= nudge_pan
+                    
+            if ps3values.triangle is False:
+                if self.ps3values.triangle is True:
+                    self.focus.pos_offset += nudge_focus
+            if ps3values.x is False:
+                if self.ps3values.x is True:
+                    self.focus.pos_offset -= nudge_focus
+                
+                
+                
+                
                 
         # R2: move motor home position
         if ps3values.R2 < 0.9:
@@ -192,6 +219,7 @@ class PanTiltFocusControl:
                 self.ps3values_R1 = False
                 self.save_calibration_data_to_file()
                 
+        self.ps3values = ps3values
         self.generate_control()
         
     #################  PTF CALIBRATION  ####################################
@@ -201,44 +229,113 @@ class PanTiltFocusControl:
         # do hydra cal stuff using self.calibration_raw_6d
         if self.dummy:
             self.Mhat = np.hstack((np.eye(3),np.array([[1],[1],[1]])))
+            self.Mhatinv = np.linalg.pinv(self.Mhat)
             self.camera_center = [0,0,0]
         
         if not self.dummy:
-            points3D = cvNumpy.array_to_mat(np.asarray( self.data[:,3:6] ))
-            points2D = cvNumpy.array_to_mat(np.asarray( np.tan( self.data[:,0:2] ) ))
-            K = cvNumpy.array_to_mat(np.eye(3))
-            rvec = cvNumpy.array_to_mat(np.zeros(3))
-            tvec = cvNumpy.array_to_mat(np.zeros(3))
-            distCoeffs = cvNumpy.array_to_mat(np.zeros(4))
-            cv.FindExtrinsicCameraParams2(points3D, points2D, K, distCoeffs, rvec, tvec)
+        
+            # initially: calibrate with all data:
+            self.calibrate_pt(self.calibration_raw_6d)
+            self.focus.calibrate(data=self.calibration_raw_6d, camera_center=self.camera_center, plot=True)
+            original_avg_2d_reprojection_error, original_avg_focus_reprojection_error = self.calc_reprojection_error(self.calibration_raw_6d)
             
-            # convert rotation vector to rotation matrix
-            rmat = cvNumpy.array_to_mat(np.zeros([3,3]))
-            cv.Rodrigues2( rvec, rmat )
-            
-            # generate P matrix
-            self.R = cvNumpy.mat_to_array(rmat)
-            self.t = cvNumpy.mat_to_array(tvec)
-            self.K = cvNumpy.mat_to_array(K)
-            Rt = np.hstack((self.R,self.t.T))
-            self.P = np.dot( self.K, Rt )
-            self.Mhat = self.P
-            self.camera_center = camera_math.center(self.P)[:,0]
-            
-        self.Mhatinv = np.linalg.pinv(self.Mhat)
+            if 0:
+                
+                # loop to eliminate bad points
+                n_data_pts = np.shape(self.calibration_raw_6d)[0]
+                bad_pts = []
+                for i in range(n_data_pts):
+                    data_tmp = copy.copy(self.calibration_raw_6d)
+                    data_tmp = np.delete(data_tmp, np.s_[i], axis=0) 
+                    self.calibrate_pt(data_tmp)
+                    self.focus.calibrate(data=data_tmp, camera_center=self.camera_center)
+                    avg_2d_reprojection_error, avg_focus_reprojection_error = self.calc_reprojection_error(data_tmp)
+                    err_diff = avg_2d_reprojection_error - original_avg_2d_reprojection_error
+                    print 'reprojection errors: ', err_diff 
+                    if err_diff < 1:
+                        bad_pts.append(i)
+                        
+                # now redo calibration with only good points:
+                n_good_pts = n_data_pts - len(bad_pts)
+                self.calibration_filtered = np.zeros([n_good_pts,6])
+                good_pts_counter = 0
+                for i in range(n_data_pts):
+                    if i not in bad_pts:
+                        self.calibration_filtered[good_pts_counter,:] = self.calibration_raw_6d[i,:]
+                        good_pts_counter += 1
+                self.calibrate_pt(self.calibration_filtered)
+                self.focus.calibrate(data=self.calibration_filtered, camera_center=self.camera_center, plot=True)
+                new_2d_reprojection_error, new_focus_reprojection_error = self.calc_reprojection_error(self.calibration_filtered)   
+                
+                print
+                print '2d reprojection error using all data: ', original_avg_2d_reprojection_error
+                print '2d reprojection error using some data: ', new_2d_reprojection_error
+                print 'focus reprojection error using all data: ', original_avg_focus_reprojection_error
+                print 'focus reprojection error using some data: ', new_focus_reprojection_error
+                print
+                print 'removed x pts: ', len(bad_pts)
+                
+            plt.show()
+        
         #self.Mhat3x3inv = np.linalg.inv(self.Mhat[:,0:3]) # this is the left 3x3 section of Mhat, inverted
         #self.Mhat3x1 = self.Mhat[:,3] # this is the rightmost vertical vector of Mhat
-            
-        if not self.dummy:
-            # for using fast=1 (ptf offset)
-            #actual_dist_to_obj = np.zeros(np.shape(self.calibration_raw_6d)[0])
-            #for i in range(len(actual_dist_to_obj)):
-            #    actual_dist_to_obj[i] = self.calc_actual_dist_to_object(self.calibration_raw_6d[i,3:6])
-            self.focus.calibrate(data=self.calibration_raw_6d, camera_center=[ 0.26387096,  2.01547775, -6.21817195])
-            #self.focus.test_calibrate(self.calibration_raw_6d, self.camera_center)
+        
         print 'camera_center: ', self.camera_center
         self.pub_camera_center.publish(Point(self.camera_center[0], self.camera_center[1], self.camera_center[2]))
         return
+        
+        
+    def calibrate_pt(self, data):
+        points3D = cvNumpy.array_to_mat(np.asarray( data[:,3:6] ))
+        points2D = cvNumpy.array_to_mat(np.asarray( np.tan( data[:,0:2] ) ))
+        K = cvNumpy.array_to_mat(np.eye(3))
+        rvec = cvNumpy.array_to_mat(np.zeros(3))
+        tvec = cvNumpy.array_to_mat(np.zeros(3))
+        distCoeffs = cvNumpy.array_to_mat(np.zeros(4))
+        cv.FindExtrinsicCameraParams2(points3D, points2D, K, distCoeffs, rvec, tvec)
+        
+        # convert rotation vector to rotation matrix
+        rmat = cvNumpy.array_to_mat(np.zeros([3,3]))
+        cv.Rodrigues2( rvec, rmat )
+        
+        # generate P matrix
+        self.R = cvNumpy.mat_to_array(rmat)
+        self.t = cvNumpy.mat_to_array(tvec)
+        self.K = cvNumpy.mat_to_array(K)
+        Rt = np.hstack((self.R,self.t.T))
+        self.P = np.dot( self.K, Rt )
+        self.Mhat = self.P
+        self.camera_center = camera_math.center(self.P)[:,0]
+        self.distCoeffs = cvNumpy.mat_to_array(distCoeffs)
+        
+        print 'camera calibration results: '
+        print 'K: '
+        print self.K
+        print 'distCoeffs: '
+        print self.distCoeffs
+        
+        
+        # inverse Mhat:
+        self.Mhatinv = np.linalg.pinv(self.Mhat)
+        
+        return
+        
+    def calc_reprojection_error(self,data):
+        n_data_pts = np.shape(data)[0]
+        reprojection_error_2d = np.zeros(n_data_pts)
+        focus_reprojection_error = np.zeros(n_data_pts)
+        reprojection_error_3d = np.zeros(n_data_pts)
+        for i in range(n_data_pts):
+            obj = data[i,3:6]
+            #print 'object: ', obj
+            pan_pos, tilt_pos, focus_pos = self.to_motor_coords(obj)
+            reprojection_error_2d[i] = np.abs(pan_pos - data[i,0]) + np.abs(tilt_pos - data[i,1])
+            focus_reprojection_error[i] = np.abs(focus_pos - data[i,2]) 
+            reprojection_error_3d[i] = reprojection_error_2d[i] + focus_reprojection_error[i]
+            
+        avg_2d_reprojection_error = np.mean(reprojection_error_2d)
+        avg_focus_reprojection_error = np.mean(focus_reprojection_error)
+        return avg_2d_reprojection_error, avg_focus_reprojection_error 
         
     def fmin_calibration_func(self,displacements):
         
@@ -288,7 +385,7 @@ class PanTiltFocusControl:
         print self.calibration_raw_6d
         print self.calibration_raw_6d.shape
         
-        if self.calibration_raw_6d.shape[0] >= 6:
+        if self.calibration_raw_6d.shape[0] >= 4:
             self.dummy = False
             self.calibrate()
             
@@ -306,7 +403,6 @@ class PanTiltFocusControl:
         print
         print 'loading calibration... '
         self.calibration_raw_6d = pickle.load(fd)
-        self.calibrate()
         
     def save_calibration_data_to_file(self, filename=None):
         if filename is None:
@@ -322,16 +418,18 @@ class PanTiltFocusControl:
     def to_motor_coords(self, obj_pos):
         # takes 3D object as input, returns the three corresponding motor positions
         # back out desired motor positions
-        obj_pos = np.array(obj_pos)
-        #print obj_pos.shape, self.Mhat.shape
+        if len(obj_pos) == 3:
+            obj_pos = np.hstack((obj_pos, [1]))
+        obj_pos = np.asarray(obj_pos)
+        #print obj_pos, self.Mhat.shape
         q = np.dot(self.Mhat,obj_pos.T)
         r = q[0] # camera coord x
         s = q[1] # camera coord y
         t = q[2] # camera coord z
         v = s/t
         u = r/t 
-        #distc = self.calc_distc(obj_pos)
-        distc = self.calc_actual_dist_to_object(obj_pos)
+        distc = self.calc_distc(obj_pos)
+        #distc = self.calc_actual_dist_to_object(obj_pos)
         #distc = np.linalg.norm(q) # equivalent to above function call
         #print 'pos_3d: ', obj_pos
         #print 'distc: ', r,s,t
@@ -348,8 +446,8 @@ class PanTiltFocusControl:
         # for t:
         # find intersection of ray (r,s,t=anything) and sphere distc=distc, around camera center self.camera_center
         
-        distc = self.focus.calc_distc_from_focus(focus_pos)
         
+        distc = self.focus.calc_distc_from_focus(focus_pos)
         
         
         
@@ -366,6 +464,7 @@ class PanTiltFocusControl:
         direction = c2-c1
         direction = direction/numpy.sqrt(numpy.sum(direction**2))
         pos_3d = c1+direction*distc
+        #print 'pos 3d: ', pos_3d
         #print pos_3d
         #print pos_3d
         if pub is True:
@@ -382,17 +481,20 @@ class PanTiltFocusControl:
         if self.pref_obj_id is not None and self.dummy is False:
             #print self.pref_obj_id, self.pref_obj_position, self.pref_obj_velocity, self.pref_obj_latency
             #try:
-            self.predicted_obj_pos = self.pref_obj_position + self.pref_obj_velocity*self.pref_obj_latency
+            motor_latency = np.min([self.pan.latency, self.tilt.latency, self.focus.latency]) 
+            self.predicted_obj_pos = self.pref_obj_position + self.pref_obj_velocity*(self.pref_obj_latency+motor_latency)
             obj_pos = np.hstack((self.predicted_obj_pos, [1]))
             motor_pos = self.to_motor_coords(obj_pos)
+            m_des_vel = self.to_motor_coords(self.pref_obj_velocity)
             #print obj_pos, '*'
             #except:
                 #self.reset()
         if self.pref_obj_id is None or self.dummy is True:
             motor_pos = np.array([self.pan.home,self.tilt.home,self.focus.home])
+            m_des_vel = self.to_motor_coords([0,0,0])
         m_offset = np.array([self.pan.pos_offset, self.tilt.pos_offset, self.focus.pos_offset])
-        print 'motor pos: ', motor_pos
-        print 'motor offset: ', m_offset
+        #print 'motor pos: ', motor_pos
+        #print 'motor offset: ', m_offset
         m_des_pos = motor_pos + m_offset
         #print '*'*80
         #print m_des_pos
@@ -401,9 +503,9 @@ class PanTiltFocusControl:
         #print self.to_motor_coords(obj_pos)
         # send out control signal
         if 1:
-            self.pub_pan_ctrl.publish(Float64(m_des_pos[0]))
-            self.pub_tilt_ctrl.publish(Float64(m_des_pos[1]))
-            self.pub_focus_ctrl.publish(Float64(m_des_pos[2]))
+            self.pub_pan_ctrl.publish(motorctrl(m_des_pos[0], m_des_vel[0]))
+            self.pub_tilt_ctrl.publish(motorctrl(m_des_pos[1], m_des_vel[1]))
+            self.pub_focus_ctrl.publish(motorctrl(m_des_pos[2], m_des_vel[2]))
             
         # publish best knowledge of points - should be a steady stream if the ps3 controller is running, otherwise should be in the pan, tilt, focus, position callbacks, but currently that would lead to three callbacks, which is ugly.
         #self.pub_ptf_3d.publish(Point(self.pan.pos, self.tilt.pos, self.focus.pos))
