@@ -178,10 +178,10 @@ class PanTiltFocusControl:
                 if ps3values.x is False:
                     if self.ps3values.x is True:
                         self.focus.pos_offset -= nudge_focus
-                
-                
-                
-                
+                        
+            # scanner
+            if ps3values.R2 < 0.9:
+                self.scan()
                 
         # R2: move motor home position
         if ps3values.R2 < 0.9:
