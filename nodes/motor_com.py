@@ -148,7 +148,7 @@ class MotorCom:
             if self.dummy is True:
                 time0 = rospy.get_time()
                 #print self.pos, m_des_pos
-                self.pub.publish(motorcom(self.pos, self.latency))
+                self.pub.publish(motorcom(self.pos, self.latency, time0))
                 # controller:
                 vel_des = self.gain*(m_des_pos-self.pos) 
                     
@@ -167,7 +167,7 @@ class MotorCom:
             if self.dummy is False:
                 time0 = rospy.get_time()
                 self.pos = self.m.getpos()
-                self.pub.publish(motorcom(self.pos, self.latency))
+                self.pub.publish(motorcom(self.pos, self.latency, time0))
                 
                 # controller:
                 vel_des = self.gain*(m_des_pos-self.pos) + m_des_vel
