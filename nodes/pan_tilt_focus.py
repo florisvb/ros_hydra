@@ -371,8 +371,8 @@ class PanTiltFocusControl:
         actual_dist_to_object = np.sqrt(distc**2 + self.pan.center_displacement**2 + self.tilt.center_displacement**2)
         return actual_dist_to_object
         
-    def save_calibration_data(self):
-        # i think it's [motors, fly_position]
+    def save_calibration_data(self, calibrate=True):
+        # [motors, fly_position]
         if self.pref_obj_id is None:
             print 'no active object id... no data saved'
             return 0
@@ -388,9 +388,10 @@ class PanTiltFocusControl:
         print self.calibration_raw_6d
         print self.calibration_raw_6d.shape
         
-        if self.calibration_raw_6d.shape[0] >= 4:
-            self.dummy = False
-            self.calibrate()
+        if calibrate:
+            if self.calibration_raw_6d.shape[0] >= 4:
+                self.dummy = False
+                self.calibrate()
             
     def calc_distc(self,pos_3d):
         #print pos_3d, self.camera_center
@@ -415,7 +416,36 @@ class PanTiltFocusControl:
         fd = open( fname, mode='w' )
         pickle.dump(self.calibration_raw_6d, fd)
         return 1
+
+    def scan(self, increment=5.0*np.pi/180.0, pause=0.01, save_data=True):
+        self.dummy = True
         
+        # go to the upper left corner
+        self.pan.home = 0
+        self.tilt.home = 0
+        self.focus.home = 0
+        self.pan.pos_offset = self.pan.limit_lo
+        self.tilt.pos_offset = self.tilt.limit_hi
+        self.focus.pos_offset = 1
+        self.generate_control()
+        
+        # scan across a pan line:
+        def pan_scan(increment, direction, pause, save_data):
+            while self.pan.pos_offset <= self.pan.limit_hi and self.pan.pos_offset >= selof.pan.limit_lo:
+                self.pan.pos_offset += increment*direction
+                self.generate_control
+                time.sleep(pause)
+                if save_data:
+                    if self.pref_obj_id is None:
+                        print 'no obj id selected... will wait for 0.5 sec'
+                        time.sleep(0.5)
+                    self.save_calibration_data(calibrate=False)
+        
+        direction = 1
+        while self.tilt.pos_offset <= self.tilt.limit_hi and self.tilt.pos_offset > self.tilt.limit_lo:
+            self.tilt.pos_offset += increment*-1
+            pan_scan(increment, direction, pause, save_data)
+            direction *= -1
     
         
     def to_motor_coords(self, obj_pos, offset=[0,0,0]):
@@ -500,8 +530,7 @@ class PanTiltFocusControl:
             m_des_vel = self.to_motor_coords([0,0,0])
             
         if self.dummy is True:
-            m_offset = offset
-            motor_pos = np.array([self.pan.home,self.tilt.home,self.focus.home]) + m_offset
+            motor_pos = np.array([self.pan.home,self.tilt.home,self.focus.home]) + offset
             m_des_vel = [0,0,0]
             
         
