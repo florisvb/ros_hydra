@@ -59,19 +59,19 @@ class MotorCom:
         
         # motor control characteristics 
         if self.motor == 'pan':
-            self.damping = 0.2
+            self.damping = 1
             self.gain = 10
             self.limit_lo = -1
             self.limit_hi = 1
             self.limit_buffer = 0.2
         if self.motor == 'tilt':
-            self.damping = 0.2
+            self.damping = 1
             self.gain = 10
             self.limit_lo = -1
             self.limit_hi = 1
             self.limit_buffer = 0.2
         if self.motor == 'focus':
-            self.damping = 0.2
+            self.damping = 1
             self.gain = 10
             self.limit_lo = -1000
             self.limit_hi = 1000
@@ -177,7 +177,11 @@ class MotorCom:
                 #print self.pos, m_des_pos, vel_des, accel
                 
                 # set new desired velocity
-                self.vel = self.vel + (vel_des - self.vel)*np.exp(-1*np.abs(accel)*self.damping)
+                # damping should be less than one if acceleration is very large, =1 is small
+                damp_factor = -1*np.abs(accel)*self.damping + self.damping
+                if damp_factor < 0.1:
+                    damp_factor = 0.1
+                self.vel = self.vel + (vel_des - self.vel)*damp_factor
                 
                 change_direction = 1
                 if np.sign(self.vel) == self.direction:

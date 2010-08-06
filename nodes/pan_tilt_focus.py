@@ -418,7 +418,7 @@ class PanTiltFocusControl:
         
     
         
-    def to_motor_coords(self, obj_pos):
+    def to_motor_coords(self, obj_pos, offset=[0,0,0]):
         # takes 3D object as input, returns the three corresponding motor positions
         # back out desired motor positions
         if len(obj_pos) == 3:
@@ -436,9 +436,9 @@ class PanTiltFocusControl:
         #distc = np.linalg.norm(q) # equivalent to above function call
         #print 'pos_3d: ', obj_pos
         #print 'distc: ', r,s,t
-        pan_pos = np.arctan2(u,1) # focal length of 1, arbitrary
-        tilt_pos = np.arctan2(v,1)
-        focus_pos = self.focus.calc_focus(obj_pos)
+        pan_pos = np.arctan2(u+offset[0],1) # focal length of 1, arbitrary
+        tilt_pos = np.arctan2(v+offset[1],1)
+        focus_pos = self.focus.calc_focus(obj_pos, offset=offset[2])
         motor_coords = [pan_pos, tilt_pos, focus_pos]
         #print motor_coords
         
@@ -479,6 +479,8 @@ class PanTiltFocusControl:
     #################  CONTROL  ####################################
         
     def generate_control(self):
+    
+        offset = np.array([self.pan.pos_offset, self.tilt.pos_offset, self.focus.pos_offset])
         
         # predict fly position:
         if self.pref_obj_id is not None and self.dummy is False:
@@ -487,18 +489,27 @@ class PanTiltFocusControl:
             motor_latency = np.min([self.pan.latency, self.tilt.latency, self.focus.latency]) 
             self.predicted_obj_pos = self.pref_obj_position + self.pref_obj_velocity*(self.pref_obj_latency+motor_latency)
             obj_pos = np.hstack((self.predicted_obj_pos, [1]))
-            motor_pos = self.to_motor_coords(obj_pos)
+            motor_pos = self.to_motor_coords(obj_pos, offset=offset)
             m_des_vel = self.to_motor_coords(self.pref_obj_velocity)
             #print obj_pos, '*'
             #except:
                 #self.reset()
-        if self.pref_obj_id is None or self.dummy is True:
-            motor_pos = np.array([self.pan.home,self.tilt.home,self.focus.home])
+        if self.pref_obj_id is None and self.dummy is False:
+            #m_offset = self.to_motor_coords([0,0,0], offset=offset)
+            motor_pos = np.array([self.pan.home,self.tilt.home,self.focus.home]) + offset
             m_des_vel = self.to_motor_coords([0,0,0])
-        m_offset = np.array([self.pan.pos_offset, self.tilt.pos_offset, self.focus.pos_offset])
+            
+        if self.dummy is True:
+            m_offset = offset
+            motor_pos = np.array([self.pan.home,self.tilt.home,self.focus.home]) + m_offset
+            m_des_vel = [0,0,0]
+            
+        
+            
+        
         #print 'motor pos: ', motor_pos
         #print 'motor offset: ', m_offset
-        m_des_pos = motor_pos + m_offset
+        m_des_pos = motor_pos
         #print '*'*80
         #print m_des_pos
         
