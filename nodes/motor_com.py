@@ -3,7 +3,7 @@ import roslib; roslib.load_manifest('ros_hydra')
 import rospy
 from std_msgs.msg import *
 from ros_flydra.msg import *
-from ros_hydra.msg import motorcom, motorctrl
+from ros_hydra.msg import motorcom, motorctrl, motorlimits
 from joystick_ps3.msg import ps3values
 import time
 
@@ -59,20 +59,20 @@ class MotorCom:
         
         # motor control characteristics 
         if self.motor == 'pan':
-            self.damping = 1
-            self.gain = 10
+            self.damping = .5
+            self.gain = 5
             self.limit_lo = -1
             self.limit_hi = 1
             self.limit_buffer = 0.2
         if self.motor == 'tilt':
-            self.damping = 1
-            self.gain = 10
+            self.damping = .5
+            self.gain = 5
             self.limit_lo = -1
             self.limit_hi = 1
             self.limit_buffer = 0.2
         if self.motor == 'focus':
-            self.damping = 1
-            self.gain = 10
+            self.damping = .5
+            self.gain = 5
             self.limit_lo = -1000
             self.limit_hi = 1000
             self.limit_buffer = 0.2
@@ -94,8 +94,9 @@ class MotorCom:
 
         # ros publishers
         pub = motor + '_pos'
+        pub_limits = motor + '_limits'
         self.pub = rospy.Publisher(pub, motorcom)
-        
+        self.pub_limits = rospy.Publisher(pub_limits, motorlimits)
         
         #################################################
         
@@ -125,6 +126,9 @@ class MotorCom:
                 print 'limit_lo: ', self.limit_lo
                 self.vel=0
                 self.STOP_CTRL = False
+                
+        # publish limit lo/hi
+        self.pub_limits.publish(motorlimits(self.limit_lo, self.limit_hi))
 
     def ctrl_callback(self, data):
     
@@ -146,7 +150,7 @@ class MotorCom:
             #print self.pos
             
             if self.dummy is True:
-                time0 = rospy.get_time()
+                time0 = rospy.get_rostime()
                 #print self.pos, m_des_pos
                 self.pub.publish(motorcom(self.pos, self.latency, time0))
                 # controller:
@@ -158,14 +162,14 @@ class MotorCom:
                 # set new desired velocity
                 self.vel = self.vel + (vel_des - self.vel)*np.exp(-1*np.abs(accel)*self.damping)
 
-                now = rospy.get_time()
+                now = rospy.get_rostime()
                 self.pos = self.vel*(now-self.last_time) + self.pos            
                 self.last_time = now
                 self.latency = now-time0
                 
             
             if self.dummy is False:
-                time0 = rospy.get_time()
+                time0 = rospy.get_rostime()
                 self.pos = self.m.getpos()
                 self.pub.publish(motorcom(self.pos, self.latency, time0))
                 
@@ -178,11 +182,21 @@ class MotorCom:
                 
                 # set new desired velocity
                 # damping should be less than one if acceleration is very large, =1 is small
-                damp_factor = -1*np.abs(accel)*self.damping + self.damping
-                if damp_factor < 0.1:
-                    damp_factor = 0.1
-                self.vel = self.vel + (vel_des - self.vel)*damp_factor
+                damp_factor = np.exp(np.abs(accel))*self.damping-self.damping
+                if damp_factor > 1.0:
+                    damp_factor = 0.8
                 
+                self.vel = self.vel + (vel_des - self.vel)*(1-damp_factor)
+                
+                if self.pos < self.limit_lo: 
+                    if self.vel < 0:
+                        print 'stopping!'
+                        self.vel = 0                    
+                if self.pos > self.limit_hi: 
+                    if self.vel > 0:
+                        print 'stopping!'
+                        self.vel = 0
+                                    
                 change_direction = 1
                 if np.sign(self.vel) == self.direction:
                     change_direction = 0
@@ -190,7 +204,9 @@ class MotorCom:
             
                 #print motorid, m_control, m_current_vel, vel_des, accel, 'latency: ', latency
                 self.m.setvel(self.vel, change_direction = change_direction)
-                self.latency = rospy.get_time()-time0
+                print m_des_pos, self.pos, accel, damp_factor
+                self.latency = rospy.get_rostime().secs-time0.secs
+                
 
 if __name__ == '__main__':
 

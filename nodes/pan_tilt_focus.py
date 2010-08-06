@@ -3,7 +3,7 @@ import roslib; roslib.load_manifest('ros_hydra')
 import rospy
 from std_msgs.msg import *
 from ros_flydra.msg import *
-from ros_hydra.msg import motorcom, motorctrl
+from ros_hydra.msg import motorcom, motorctrl, motorlimits
 from joystick_ps3.msg import ps3values
 from geometry_msgs.msg import Point
 import time
@@ -90,6 +90,9 @@ class PanTiltFocusControl:
         rospy.Subscriber("pan_pos", motorcom, self.pan_pos_callback)
         rospy.Subscriber("tilt_pos", motorcom, self.tilt_pos_callback)
         rospy.Subscriber("focus_pos", motorcom, self.focus_pos_callback)
+        rospy.Subscriber("pan_limits", motorlimits, self.pan_limits_callback)
+        rospy.Subscriber("tilt_limits", motorlimits, self.tilt_limits_callback)
+        rospy.Subscriber("focus_limits", motorlimits, self.focus_limits_callback)
         rospy.Subscriber("ps3_interpreter", ps3values, self.ps3_callback)
         
         
@@ -131,6 +134,16 @@ class PanTiltFocusControl:
     def focus_pos_callback(self, data):
         self.focus.pos = data.pos
         self.focus.latency = data.latency
+        
+    def pan_limits_callback(self, data):
+        self.pan.limit_lo = data.limit_lo
+        self.pan.limit_hi = data.limit_hi
+    def tilt_limits_callback(self, data):
+        self.tilt.limit_lo = data.limit_lo
+        self.tilt.limit_hi = data.limit_hi
+    def focus_limits_callback(self, data):
+        self.focus.limit_lo = data.limit_lo
+        self.focus.limit_hi = data.limit_hi
         
     def ps3_callback(self,ps3values):
     
@@ -180,8 +193,9 @@ class PanTiltFocusControl:
                         self.focus.pos_offset -= nudge_focus
                         
             # scanner
-            if ps3values.R2 < 0.9:
-                self.scan()
+            if self.ps3values.R2 < 0.9:
+                if ps3values.R2 > 0.9:
+                    self.scan()
                 
         # R2: move motor home position
         if ps3values.R2 < 0.9:
@@ -417,36 +431,54 @@ class PanTiltFocusControl:
         pickle.dump(self.calibration_raw_6d, fd)
         return 1
 
-    def scan(self, increment=5.0*np.pi/180.0, pause=0.01, save_data=True):
+    def scan(self, increment=5.0*np.pi/180.0, pause=0.1, save_data=True):
         self.dummy = True
         
         # go to the upper left corner
         self.pan.home = 0
         self.tilt.home = 0
         self.focus.home = 0
-        self.pan.pos_offset = self.pan.limit_lo
-        self.tilt.pos_offset = self.tilt.limit_hi
+        self.pan.pos_offset = self.pan.limit_lo+increment
+        self.tilt.pos_offset = self.tilt.limit_hi-increment
         self.focus.pos_offset = 1
-        self.generate_control()
-        
-        # scan across a pan line:
-        def pan_scan(increment, direction, pause, save_data):
-            while self.pan.pos_offset <= self.pan.limit_hi and self.pan.pos_offset >= selof.pan.limit_lo:
+        print self.pan.pos_offset, self.tilt.pos_offset, self.focus.pos_offset
+        self.drive(1)
+                
+        if 1:
+            # scan across a pan line:
+            def pan_scan_loop(increment, direction, pause, save_data):
                 self.pan.pos_offset += increment*direction
-                self.generate_control
-                time.sleep(pause)
+                self.drive(pause)
                 if save_data:
                     if self.pref_obj_id is None:
                         print 'no obj id selected... will wait for 0.5 sec'
-                        time.sleep(0.5)
+                        self.drive(0.5)
                     self.save_calibration_data(calibrate=False)
-        
-        direction = 1
-        while self.tilt.pos_offset <= self.tilt.limit_hi and self.tilt.pos_offset > self.tilt.limit_lo:
-            self.tilt.pos_offset += increment*-1
-            pan_scan(increment, direction, pause, save_data)
-            direction *= -1
+            
+            def pan_scan(increment, direction, pause, save_data):
+                print 'pan increment'
+                if direction > 0:
+                    while self.pan.pos_offset <= self.pan.limit_hi:
+                        pan_scan_loop(increment, direction, pause, save_data)
+                if direction < 0:
+                    while self.pan.pos_offset >= self.pan.limit_lo:
+                        pan_scan_loop(increment, direction, pause, save_data)
+                        
+            direction = 1
+            while self.tilt.pos_offset <= self.tilt.limit_hi and self.tilt.pos_offset > self.tilt.limit_lo:
+                self.tilt.pos_offset -= increment
+                print 'tilt increment'
+                self.generate_control()
+                pan_scan(increment, direction, pause, save_data)
+                direction *= -1
     
+    def drive(self, duration, rate=100):
+        # run the control routine for 'duration' seconds at 'rate' in Hz
+        time0 = rospy.get_time()
+        r = rospy.Rate(rate) # rate, hz
+        while rospy.get_time()-time0 < duration:
+            self.generate_control()
+            r.sleep()
         
     def to_motor_coords(self, obj_pos, offset=[0,0,0]):
         # takes 3D object as input, returns the three corresponding motor positions
