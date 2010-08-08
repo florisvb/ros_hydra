@@ -49,6 +49,9 @@ class SliderPackage:
         self.vallabel.SetLabel(str(val))
         return val
         
+# TODO:
+# 1. add a way to save and load the parameters       
+
 class Frame(wx.Frame):
     def __init__(self):
         wx.Frame.__init__(self, None, title='Events Test')
@@ -63,26 +66,16 @@ class Frame(wx.Frame):
         # motor control parameters
         motor_control_x_pos = 30
         self.ptgain_slider = SliderPackage(panel, 'pan/tilt gains', 5, 0, 10, pos=(motor_control_x_pos,50), length=200)
-        self.ptdamping_slider = SliderPackage(panel, 'pan/tilt damping', 5, 0, 10, pos=(motor_control_x_pos,100), length=200)
+        self.ptdamping_slider = SliderPackage(panel, 'pan/tilt damping', 0.5, 0, 1, pos=(motor_control_x_pos,100), length=200)
         self.focusgain_slider = SliderPackage(panel, 'focus gains', 5, 0, 10, pos=(motor_control_x_pos,200), length=200)
-        self.focusdamping_slider = SliderPackage(panel, 'focus damping', 5, 0, 10, pos=(motor_control_x_pos,250), length=200)
+        self.focusdamping_slider = SliderPackage(panel, 'focus damping', 0.5, 0, 1, pos=(motor_control_x_pos,250), length=200)
         
-                
-        
-        
-        
-        
-        
-        
-        
-        
+        # scanning parameters
+        self.scanner_interval_slider = SliderPackage(panel, 'scan interval (deg)', 5, 0, 45, pos=(motor_control_x_pos,350), length=200)
         
         
         
         self.Bind(wx.EVT_SLIDER, self.sliderUpdate)
-        
-        
-        
         
         
 
@@ -91,32 +84,31 @@ class Frame(wx.Frame):
         
         ################################################
         # ROS stuff
-        
         rospy.init_node('ptf_gui', anonymous=True)
-        
-        # ros subscribers
-        #rospy.Subscriber("ps3_interpreter", ps3values, self.ps3_callback)
-
         # ros publishers
         self.pub = rospy.Publisher('parameterupdate', Bool)
-        
         #################################################
+        
+        # send the parameters to ROS on startup
+        self.sliderUpdate()
                 
         
     def EvtRadioBox(self, event):
         
         print 'button pushed!'
             
-    def sliderUpdate(self, event):
+    def sliderUpdate(self, event=None):
         self.ptgain = self.ptgain_slider.getval()
         self.ptdamping = self.ptdamping_slider.getval()
         self.focusgain = self.focusgain_slider.getval()
         self.focusdamping = self.focusdamping_slider.getval()
+        self.scanner_interval = self.scanner_interval_slider.getval()*np.pi/180. # convert to radians
         
         rospy.set_param('ptgain', self.ptgain)
         rospy.set_param('ptdamping', self.ptdamping)
         rospy.set_param('focusgain', self.focusgain)
         rospy.set_param('focusdamping', self.focusdamping)
+        rospy.set_param('scanner_interval', self.scanner_interval)
         
         self.pub.publish(Bool(True))
         

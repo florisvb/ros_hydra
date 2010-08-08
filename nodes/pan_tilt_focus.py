@@ -51,6 +51,8 @@ class PanTiltFocusControl:
         self.ps3values_R1 = False
         self.ps3values = None
         
+        self.parameterupdate()
+        
         # motors:
         self.pan = ptf_camera_classes.PTMotor('pan')
         self.tilt = ptf_camera_classes.PTMotor('tilt')
@@ -94,12 +96,19 @@ class PanTiltFocusControl:
         rospy.Subscriber("tilt_limits", motorlimits, self.tilt_limits_callback)
         rospy.Subscriber("focus_limits", motorlimits, self.focus_limits_callback)
         rospy.Subscriber("ps3_interpreter", ps3values, self.ps3_callback)
+        rospy.Subscriber("parameterupdate", Bool, self.parameterupdate)
         
         
         
         #################################################
         
     #################  CALLBACKS  ####################################
+    
+    def parameterupdate(self, data=True):
+        if data is True:
+            if not rospy.has_param('scanner_interval'):
+                rospy.set_param('scanner_interval', 5*np.pi/180.)
+            self.scanner_interval = rospy.get_param('scanner_interval')
         
     def flydra_callback(self, super_packet):
 
@@ -195,7 +204,7 @@ class PanTiltFocusControl:
             # scanner
             if self.ps3values.R2 < 0.9:
                 if ps3values.R2 > 0.9:
-                    self.scan()
+                    self.scan(increment=self.scanner_interval)
                 
         # R2: move motor home position
         if ps3values.R2 < 0.9:
