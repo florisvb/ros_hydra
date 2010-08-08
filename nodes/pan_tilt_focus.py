@@ -109,6 +109,10 @@ class PanTiltFocusControl:
             if not rospy.has_param('scanner_interval'):
                 rospy.set_param('scanner_interval', 5*np.pi/180.)
             self.scanner_interval = rospy.get_param('scanner_interval')
+            
+            if not rospy.has_param('scanner_pause'):
+                rospy.set_param('scanner_pause', 0.5)
+            self.scanner_pause = rospy.get_param('scanner_pause')
         
     def flydra_callback(self, super_packet):
 
@@ -204,7 +208,7 @@ class PanTiltFocusControl:
             # scanner
             if self.ps3values.R2 < 0.9:
                 if ps3values.R2 > 0.9:
-                    self.scan(increment=self.scanner_interval)
+                    self.scan(increment=self.scanner_interval, pause=self.scanner_pause)
                 
         # R2: move motor home position
         if ps3values.R2 < 0.9:

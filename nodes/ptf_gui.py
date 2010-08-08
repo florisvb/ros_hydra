@@ -72,6 +72,7 @@ class Frame(wx.Frame):
         
         # scanning parameters
         self.scanner_interval_slider = SliderPackage(panel, 'scan interval (deg)', 5, 0, 45, pos=(motor_control_x_pos,350), length=200)
+        self.scanner_pause_slider = SliderPackage(panel, 'scan pause (sec)', 0.5, 0, 4, pos=(motor_control_x_pos,400), length=200)
         
         
         
@@ -103,12 +104,14 @@ class Frame(wx.Frame):
         self.focusgain = self.focusgain_slider.getval()
         self.focusdamping = self.focusdamping_slider.getval()
         self.scanner_interval = self.scanner_interval_slider.getval()*np.pi/180. # convert to radians
+        self.scanner_pause = self.scanner_pause_slider.getval()
         
         rospy.set_param('ptgain', self.ptgain)
         rospy.set_param('ptdamping', self.ptdamping)
         rospy.set_param('focusgain', self.focusgain)
         rospy.set_param('focusdamping', self.focusdamping)
         rospy.set_param('scanner_interval', self.scanner_interval)
+        rospy.set_param('scanner_pause', self.scanner_pause)
         
         self.pub.publish(Bool(True))
         
