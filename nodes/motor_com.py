@@ -57,22 +57,16 @@ class MotorCom:
         self.pos = 0
         self.vel = 0
         
-        # motor control characteristics 
+        self.parameterupdate()
         if self.motor == 'pan':
-            self.damping = .5
-            self.gain = 5
             self.limit_lo = -1
             self.limit_hi = 1
             self.limit_buffer = 0.2
         if self.motor == 'tilt':
-            self.damping = .5
-            self.gain = 5
             self.limit_lo = -1
             self.limit_hi = 1
             self.limit_buffer = 0.2
         if self.motor == 'focus':
-            self.damping = .5
-            self.gain = 5
             self.limit_lo = -1000
             self.limit_hi = 1000
             self.limit_buffer = 0.2
@@ -91,6 +85,7 @@ class MotorCom:
         sub = motor + '_ctrl'
         rospy.Subscriber(sub, motorctrl, self.ctrl_callback)
         rospy.Subscriber("ps3_interpreter", ps3values, self.ps3_callback)
+        rospy.Subscriber("parameterupdate", Bool, self.parameterupdate)
 
         # ros publishers
         pub = motor + '_pos'
@@ -102,6 +97,23 @@ class MotorCom:
         
         
         rospy.spin()
+        
+    def parameterupdate(self, data=True):
+        if data is True:
+            # motor control characteristics 
+            if not rospy.has_param('ptgain'):
+                rospy.set_param('ptgain', 5)
+                rospy.set_param('ptdamping', 0.5)
+                rospy.set_param('focusgain', 5)
+                rospy.set_param('focusdamping', 0.5)
+            
+            if self.motor == 'pan' or self.motor == 'tilt':
+                self.damping = rospy.get_param('ptdamping')
+                self.gain = rospy.get_param('ptgain')
+            if self.motor == 'focus':
+                self.damping = rospy.get_param('focusdamping')
+                self.gain = rospy.get_param('focusgain')
+            
         
     def ps3_callback(self, ps3values):
         if self.dummy is False:
