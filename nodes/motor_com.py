@@ -106,14 +106,17 @@ class MotorCom:
                 rospy.set_param('ptdamping', 0.5)
                 rospy.set_param('focusgain', 5)
                 rospy.set_param('focusdamping', 0.5)
+                rospy.set_param('ptaccel', 0.5)
+                rospy.set_param('focusaccel', 0.8)
             
             if self.motor == 'pan' or self.motor == 'tilt':
                 self.damping = rospy.get_param('ptdamping')
                 self.gain = rospy.get_param('ptgain')
+                self.max_accel = rospy.get_param('ptaccel')
             if self.motor == 'focus':
                 self.damping = rospy.get_param('focusdamping')
                 self.gain = rospy.get_param('focusgain')
-            
+                self.max_accel = rospy.get_param('focusaccel')
         
     def ps3_callback(self, ps3values):
         if self.dummy is False:
@@ -181,6 +184,9 @@ class MotorCom:
                 
             
             if self.dummy is False:
+                
+                # try input shaping. look at Teel's work
+            
                 time0 = rospy.get_rostime()
                 self.pos = self.m.getpos()
                 self.pub.publish(motorcom(self.pos, self.latency, time0))
@@ -192,13 +198,20 @@ class MotorCom:
                 accel = (vel_des - self.vel)
                 #print self.pos, m_des_pos, vel_des, accel
                 
+                ## old damping method ##
                 # set new desired velocity
                 # damping should be less than one if acceleration is very large, =1 is small
-                damp_factor = np.exp(np.abs(accel))*self.damping-self.damping
-                if damp_factor > 1.0:
-                    damp_factor = 0.8
+                #damp_factor = np.exp(np.abs(accel))*self.damping-self.damping
+                #if damp_factor > 1.0:
+                #    damp_factor = 0.8
+                #
                 
-                self.vel = self.vel + (vel_des - self.vel)*(1-damp_factor)
+                if accel > self.max_accel:
+                    self.vel += self.max_accel
+                else:
+                    self.vel = vel_des
+                
+                #self.vel = self.vel + (vel_des - self.vel)*(1-damp_factor)
                 
                 if self.pos < self.limit_lo: 
                     if self.vel < 0:
