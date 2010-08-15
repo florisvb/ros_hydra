@@ -99,25 +99,25 @@ class MotorCom:
         rospy.spin()
         
     def parameterupdate(self, data=True):
-        if data is True:
-            # motor control characteristics 
-            if not rospy.has_param('ptgain'):
-                rospy.set_param('ptgain', 5)
-                rospy.set_param('ptdamping', 0.5)
-                rospy.set_param('focusgain', 5)
-                rospy.set_param('focusdamping', 0.5)
-                rospy.set_param('ptaccel', 0.5)
-                rospy.set_param('focusaccel', 0.8)
-            
-            if self.motor == 'pan' or self.motor == 'tilt':
-                self.damping = rospy.get_param('ptdamping')
-                self.gain = rospy.get_param('ptgain')
-                self.max_accel = rospy.get_param('ptaccel')
-            if self.motor == 'focus':
-                self.damping = rospy.get_param('focusdamping')
-                self.gain = rospy.get_param('focusgain')
-                self.max_accel = rospy.get_param('focusaccel')
+        # motor control characteristics 
+        if not rospy.has_param('ptgain'):
+            print 'setting default parameters'
+            rospy.set_param('ptgain', 5)
+            rospy.set_param('ptdamping', 0.5)
+            rospy.set_param('focusgain', 5)
+            rospy.set_param('focusdamping', 0.5)
+            rospy.set_param('ptaccel', 0.5)
+            rospy.set_param('focusaccel', 0.8)
         
+        if self.motor == 'pan' or self.motor == 'tilt':
+            self.damping = rospy.get_param('ptdamping')
+            self.gain = rospy.get_param('ptgain')
+            self.max_accel = rospy.get_param('ptaccel')
+        if self.motor == 'focus':
+            self.damping = rospy.get_param('focusdamping')
+            self.gain = rospy.get_param('focusgain')
+            self.max_accel = rospy.get_param('focusaccel')
+            
     def ps3_callback(self, ps3values):
         if self.dummy is False:
             # look for down press followed by up: so command is sent only once
@@ -206,8 +206,8 @@ class MotorCom:
                 #    damp_factor = 0.8
                 #
                 
-                if accel > self.max_accel:
-                    self.vel += self.max_accel
+                if np.abs(accel) > self.max_accel:
+                    self.vel += self.max_accel*np.sign(accel)
                 else:
                     self.vel = vel_des
                 
@@ -229,7 +229,7 @@ class MotorCom:
             
                 #print motorid, m_control, m_current_vel, vel_des, accel, 'latency: ', latency
                 self.m.setvel(self.vel, change_direction = change_direction)
-                print m_des_pos, self.pos, accel, damp_factor
+                #print m_des_pos, self.pos, accel
                 self.latency = rospy.get_rostime().secs-time0.secs
                 
 
