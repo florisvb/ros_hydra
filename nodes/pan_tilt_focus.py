@@ -292,7 +292,11 @@ class PanTiltFocusControl:
             # initially: calibrate with all data:
             #self.calibrate_pt(self.calibration_raw_6d)
             if self.calibration_raw_6d is not None:
-                self.calibrate_pt_dlt()
+                focal_length=1
+                tmp = scipy.optimize.fmin( self.calibrate_pt, focal_length, full_output = 1, disp=0)
+                focal_length = tmp[0]
+                
+                self.calibrate_pt(focal_length=focal_length)
             if self.focus_calibration is not None:
                 self.calibrate_focus()
             #original_avg_2d_reprojection_error, original_avg_focus_reprojection_error = self.calc_reprojection_error(self.calibration_raw_6d)
@@ -343,10 +347,15 @@ class PanTiltFocusControl:
         return
         
         
-    def calibrate_pt(self, data):
+    def calibrate_pt(self, focal_length):
+        data = None
+        if data is None:
+            data = self.calibration_raw_6d
         points3D = cvNumpy.array_to_mat(np.asarray( data[:,3:6] ))
         points2D = cvNumpy.array_to_mat(np.asarray( np.tan( data[:,0:2] ) ))
         K = cvNumpy.array_to_mat(np.eye(3))
+        K[0,0] = focal_length
+        K[1,1] = focal_length
         rvec = cvNumpy.array_to_mat(np.zeros(3))
         tvec = cvNumpy.array_to_mat(np.zeros(3))
         distCoeffs = cvNumpy.array_to_mat(np.zeros(4))
@@ -366,6 +375,19 @@ class PanTiltFocusControl:
         self.camera_center = camera_math.center(self.P)[:,0]
         self.distCoeffs = cvNumpy.mat_to_array(distCoeffs)
         
+        # get reprojection errors
+        reprojected_points2D = cvNumpy.array_to_mat(np.asarray( ( data[:,0:2] ) ))
+        cv.ProjectPoints2(points3D, rvec, tvec, K, distCoeffs, reprojected_points2D)
+        
+        points2D_arr = cvNumpy.mat_to_array(points2D)
+        reprojected_points2D_arr = cvNumpy.mat_to_array(reprojected_points2D)
+        
+        errors = [ np.linalg.norm(points2D_arr[i,:] - reprojected_points2D_arr[i,:]) for i in range(points2D_arr.shape[0]) ]
+        print 'avg reprojection error'
+        print np.mean(errors)
+        
+        
+        
         print 'camera calibration results: '
         print 'K: '
         print self.K
@@ -376,7 +398,7 @@ class PanTiltFocusControl:
         # inverse Mhat:
         self.Mhatinv = np.linalg.pinv(self.Mhat)
         
-        return
+        return np.mean(errors)
         
     def calibrate_pt_dlt(self, data=None):
         if data is None:
@@ -392,6 +414,10 @@ class PanTiltFocusControl:
         print self.Mhat
         print 'camera center: '
         print self.camera_center
+        print 'residuals'
+        print residuals
+        print 'decomp'
+        camera_math.decomp(self.Mhat, SHOW=1)
         return
         
     def calibrate_focus(self, data=None):
