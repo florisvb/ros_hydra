@@ -34,8 +34,8 @@ def as_column(x):
 
 class PanTiltFocusControl:
 
-    def __init__(self, dummy = True, calibration_filename=None):
-    
+    def __init__(self, dummy=True, dummy_focus=True, ptcal_file=None, focuscal_file=None):
+        
         # flydra object stuff
         self.pref_obj_id = None      
         self.pref_obj_position = None
@@ -44,8 +44,16 @@ class PanTiltFocusControl:
         
         # calibration info
         self.calibration_raw_6d = None
-        self.dummy = dummy
-        
+        self.focus_calibration = None
+        if focuscal_file is None:
+            self.dummy_focus = True
+        else:
+            self.dummy_focus = False
+        if ptcal_file is None:
+            self.dummy = True
+        else:
+            self.dummy = False
+            
         self.ps3values_select = False
         self.ps3values_start = False
         self.ps3values_R1 = False
@@ -73,17 +81,17 @@ class PanTiltFocusControl:
         
         
         
-        if calibration_filename is not None:
-            self.load_calibration_data(filename=calibration_filename)
+        if ptcal_file is not None:
+            self.load_calibration_data(filename=ptcal_file, motor='pt')
             if np.shape(self.calibration_raw_6d)[0] <= 4:
                 self.dummy = True
+        if focuscal_file is not None:
+            self.load_calibration_data(filename=focuscal_file, motor='focus')
+            if np.shape(self.focus_calibration)[0] <= 4:
+                self.dummy_focus = True
+        if dummy is True:
+            self.dummy = True
         self.calibrate()
-        
-        
-        
-        
-        
-        
         
         
         # ros subscribers
@@ -206,9 +214,9 @@ class PanTiltFocusControl:
                         self.focus.pos_offset -= nudge_focus
                         
             # scanner
-            if self.ps3values.R2 < 0.9:
-                if ps3values.R2 > 0.9:
-                    self.scan(increment=self.scanner_interval, pause=self.scanner_pause)
+            #if self.ps3values.R2 < 0.9:
+            #    if ps3values.R2 > 0.9:
+            #        self.scan(increment=self.scanner_interval, pause=self.scanner_pause)
                 
         # R2: move motor home position
         if ps3values.R2 < 0.9:
@@ -228,26 +236,43 @@ class PanTiltFocusControl:
             home_3d = self.to_world_coords(self.pan.home, self.tilt.home, self.focus.home, pub=False)
             self.pub_ptf_home.publish(Point(home_3d[0], home_3d[1], home_3d[2]))
             
-        # L1: calibration
+        # L1: calibration PT
         if ps3values.L1 is True:
             
             if ps3values.select is True:
                 self.ps3values_select = True
             if ps3values.select is False and self.ps3values_select is True:
                 self.ps3values_select = False
-                self.save_calibration_data()
+                self.save_calibration_data(calibrate=False, motor='pt')
                 
             if ps3values.start is True:
                 self.ps3values_start = True
             if ps3values.start is False and self.ps3values_start is True:
                 self.ps3values_start = False
-                self.calibrate()
+                self.dummy = False
+                self.calibrate_pt(self.calibration_raw_6d)
                 
-            if ps3values.R1 is True:
-                self.ps3values_R1 = True
-            if ps3values.R1 is False and self.ps3values_R1 is True:
-                self.ps3values_R1 = False
-                self.save_calibration_data_to_file()
+            if ps3values.playstation is False and self.ps3values.playstation is True:
+                self.save_calibration_data_to_file(motor='pt')
+                
+        # R1: calibration FOCUS
+        if ps3values.R1 is True:
+            
+            if ps3values.select is True:
+                self.ps3values_select = True
+            if ps3values.select is False and self.ps3values_select is True:
+                self.ps3values_select = False
+                self.save_calibration_data(calibrate=False, motor='focus')
+                
+            if ps3values.start is True:
+                self.ps3values_start = True
+            if ps3values.start is False and self.ps3values_start is True:
+                self.ps3values_start = False
+                self.dummy = False
+                self.calibrate_focus()
+                
+            if ps3values.playstation is False and self.ps3values.playstation is True:
+                self.save_calibration_data_to_file(motor='focus')
                 
         self.ps3values = ps3values
         self.generate_control()
@@ -265,9 +290,12 @@ class PanTiltFocusControl:
         if not self.dummy:
         
             # initially: calibrate with all data:
-            self.calibrate_pt(self.calibration_raw_6d)
-            self.focus.calibrate(data=self.calibration_raw_6d, camera_center=self.camera_center, plot=True)
-            original_avg_2d_reprojection_error, original_avg_focus_reprojection_error = self.calc_reprojection_error(self.calibration_raw_6d)
+            #self.calibrate_pt(self.calibration_raw_6d)
+            if self.calibration_raw_6d is not None:
+                self.calibrate_pt_dlt()
+            if self.focus_calibration is not None:
+                self.calibrate_focus()
+            #original_avg_2d_reprojection_error, original_avg_focus_reprojection_error = self.calc_reprojection_error(self.calibration_raw_6d)
             
             if 0:
                 
@@ -305,7 +333,7 @@ class PanTiltFocusControl:
                 print
                 print 'removed x pts: ', len(bad_pts)
                 
-            plt.show()
+            #plt.show()
         
         #self.Mhat3x3inv = np.linalg.inv(self.Mhat[:,0:3]) # this is the left 3x3 section of Mhat, inverted
         #self.Mhat3x1 = self.Mhat[:,3] # this is the rightmost vertical vector of Mhat
@@ -348,6 +376,30 @@ class PanTiltFocusControl:
         # inverse Mhat:
         self.Mhatinv = np.linalg.pinv(self.Mhat)
         
+        return
+        
+    def calibrate_pt_dlt(self, data=None):
+        if data is None:
+            data = self.calibration_raw_6d
+        data3d = data[:,3:6]
+        data2d = data[:,0:2]
+        Pmat, residuals = camera_math.DLT(data3d, data2d)
+        self.Mhat = Pmat
+        self.Mhatinv = np.linalg.pinv(self.Mhat)
+        self.camera_center = camera_math.center(Pmat)
+        
+        print 'mhat: '
+        print self.Mhat
+        print 'camera center: '
+        print self.camera_center
+        return
+        
+    def calibrate_focus(self, data=None):
+        if data is None:
+            data = self.focus_calibration
+        data3d = data[:,3:6]
+        data2d = data[:,0:2]
+        self.focus.calibrate(data=self.focus_calibration, camera_center=self.camera_center, plot=True)
         return
         
     def calc_reprojection_error(self,data):
@@ -398,7 +450,7 @@ class PanTiltFocusControl:
         actual_dist_to_object = np.sqrt(distc**2 + self.pan.center_displacement**2 + self.tilt.center_displacement**2)
         return actual_dist_to_object
         
-    def save_calibration_data(self, calibrate=True):
+    def save_calibration_data(self, calibrate=True, motor='pt'):
         # [motors, fly_position]
         if self.pref_obj_id is None:
             print 'no active object id... no data saved'
@@ -406,42 +458,68 @@ class PanTiltFocusControl:
         new_cal_data = np.array([[self.pan.pos, self.tilt.pos, self.focus.pos, 
                                  self.pref_obj_position[0], self.pref_obj_position[1], self.pref_obj_position[2]]])
         print 'adding new calibration data: ', new_cal_data
-        if self.calibration_raw_6d is None:
-            self.calibration_raw_6d = new_cal_data
-        else:
-            self.calibration_raw_6d = np.vstack((self.calibration_raw_6d,new_cal_data))
-            
-        print
-        print self.calibration_raw_6d
-        print self.calibration_raw_6d.shape
         
-        if calibrate:
-            if self.calibration_raw_6d.shape[0] >= 4:
-                self.dummy = False
-                self.calibrate()
+        if motor == 'pt':
+            if self.calibration_raw_6d is None:
+                self.calibration_raw_6d = new_cal_data
+            else:
+                self.calibration_raw_6d = np.vstack((self.calibration_raw_6d,new_cal_data))
+                
+            print
+            print self.calibration_raw_6d
+            print self.calibration_raw_6d.shape
             
+            if calibrate:
+                if self.calibration_raw_6d.shape[0] >= 4:
+                    self.dummy = False
+                    self.calibrate()
+                
+        if motor == 'focus':        
+            if self.focus_calibration is None:
+                self.focus_calibration = new_cal_data
+            else:
+                self.focus_calibration = np.vstack((self.focus_calibration,new_cal_data))
+                
+            print
+            print self.focus_calibration
+            print self.focus_calibration.shape
+            
+            if calibrate:
+                if self.focus_calibration.shape[0] >= 4:
+                    self.dummy = False
+                    self.calibrate()
+                
     def calc_distc(self,pos_3d):
         #print pos_3d, self.camera_center
         distc = scipy.linalg.norm( pos_3d[0:3]-self.camera_center ) # (might need to check orientation of vectors)
         
         return distc
             
-    def load_calibration_data(self, filename=None):
+    def load_calibration_data(self, filename=None, motor='pt'):
         if filename is None:
             print 'NEED FILENAME'
         fname = (filename)
         fd = open( fname, mode='r')
         print
         print 'loading calibration... '
-        self.calibration_raw_6d = pickle.load(fd)
-        
-    def save_calibration_data_to_file(self, filename=None):
+        if motor == 'pt':
+            self.calibration_raw_6d = pickle.load(fd)
+        elif motor == 'focus': 
+            self.focus_calibration = pickle.load(fd)
+            
+    def save_calibration_data_to_file(self, filename=None, motor='pt'):
         if filename is None:
-            filename = time.strftime("ptf_calibration_%Y%m%d_%H%M%S",time.localtime())
+            if motor == 'pt':
+                filename = time.strftime("ptf_calibration_%Y%m%d_%H%M%S",time.localtime())
+            if motor == 'focus':
+                filename = time.strftime("focus_calibration_%Y%m%d_%H%M%S",time.localtime())
         print 'saving calibration to file: ', filename
         fname = (filename)  
         fd = open( fname, mode='w' )
-        pickle.dump(self.calibration_raw_6d, fd)
+        if motor == 'pt':
+            pickle.dump(self.calibration_raw_6d, fd)
+        if motor == 'focus':
+            pickle.dump(self.focus_calibration, fd)
         return 1
 
     def scan(self, increment=5.0*np.pi/180.0, pause=0.1, save_data=True):
@@ -513,13 +591,16 @@ class PanTiltFocusControl:
         #print 'distc: ', r,s,t
         pan_pos = np.arctan2(u+offset[0],1) # focal length of 1, arbitrary
         tilt_pos = np.arctan2(v+offset[1],1)
-        focus_pos = self.focus.calc_focus(obj_pos, offset=offset[2])
+        if self.dummy_focus:
+            focus_pos = offset[2]
+        else:
+            focus_pos = self.focus.calc_focus(obj_pos, offset=offset[2])
         motor_coords = [pan_pos, tilt_pos, focus_pos]
         #print motor_coords
         
         return motor_coords
         
-    def to_world_coords(self, pan_pos, tilt_pos, focus_pos, pub=True):
+    def to_world_coords(self, pan_pos, tilt_pos, focus_pos, pub=False):
         # takes three motor positions, and returns 3D point
         # for t:
         # find intersection of ray (r,s,t=anything) and sphere distc=distc, around camera center self.camera_center
@@ -546,7 +627,7 @@ class PanTiltFocusControl:
         #print pos_3d
         #print pos_3d
         if pub is True:
-            #print pan_pos, tilt_pos, focus_pos, pos_3d
+            print pan_pos, tilt_pos, focus_pos, pos_3d
             self.pub_ptf_3d.publish(Point(pos_3d[0], pos_3d[1], pos_3d[2]))
         
         return pos_3d
@@ -614,14 +695,14 @@ class PanTiltFocusControl:
 if __name__ == '__main__':
 
     parser = OptionParser()
-    parser.add_option("--calibration-filename", type="string", dest="calibration_filename", default=None,
+    parser.add_option("--ptcal", type="string", dest="ptcal_file", default=None,
                         help="camera calibration filename, raw 6d points collected using this same program")
+    parser.add_option("--focuscal", type="string", dest="focuscal_file", default=None,
+                        help="camera focus calibration filename, raw 6d points collected using this same program")
     parser.add_option("--dummy", action='store_true', dest="dummy", default=False,
                         help="run using a dummy calibration, for testing")
     (options, args) = parser.parse_args()
-    if options.calibration_filename is not None:
-        options.dummy = False
 
-    ptf_ctrl = PanTiltFocusControl(calibration_filename=options.calibration_filename, dummy=options.dummy)
+    ptf_ctrl = PanTiltFocusControl(ptcal_file=options.ptcal_file, focuscal_file=options.focuscal_file, dummy=options.dummy)
     ptf_ctrl.run()
         

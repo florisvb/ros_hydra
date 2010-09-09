@@ -65,12 +65,14 @@ class Frame(wx.Frame):
         
         # motor control parameters
         motor_control_x_pos = 30
-        self.ptgain_slider = SliderPackage(panel, 'pan/tilt gains', 5, 0, 10, pos=(motor_control_x_pos,50), length=200)
-        #self.ptdamping_slider = SliderPackage(panel, 'pan/tilt damping', 0.5, 0, 1, pos=(motor_control_x_pos,100), length=200)
-        self.ptaccel_slider = SliderPackage(panel, 'pan/tilt max accel', 0.5, 0, 1, pos=(motor_control_x_pos,100), length=200)
+        self.ptgain_slider = SliderPackage(panel, 'pan/tilt gains', 10, 0, 100, pos=(motor_control_x_pos,50), length=200)
+        self.ptdamping_slider = SliderPackage(panel, 'pan/tilt damping', 0.25, 0, 1, pos=(motor_control_x_pos,150), length=200)
+        self.ptaccel_slider = SliderPackage(panel, 'pan/tilt max accel', 0.12, 0, 1, pos=(motor_control_x_pos,100), length=200)
+        #self.ptminaccel_slider = SliderPackage(panel, 'pan/tilt min accel', .01, 0, 0.01, pos=(motor_control_x_pos,150), length=200)
         self.focusgain_slider = SliderPackage(panel, 'focus gains', 5, 0, 10, pos=(motor_control_x_pos,200), length=200)
-        #self.focusdamping_slider = SliderPackage(panel, 'focus damping', 0.5, 0, 1, pos=(motor_control_x_pos,300), length=200)
+        self.focusdamping_slider = SliderPackage(panel, 'focus damping', 0.5, 0, 1, pos=(motor_control_x_pos,300), length=200)
         self.focusaccel_slider = SliderPackage(panel, 'focus max accel', 0.5, 0, 1, pos=(motor_control_x_pos,250), length=200)
+        #self.focusminaccel_slider = SliderPackage(panel, 'focus min accel', .1, 0, .1, pos=(motor_control_x_pos,300), length=200)
         
         # scanning parameters
         self.scanner_interval_slider = SliderPackage(panel, 'scan interval (deg)', 5, 0, 45, pos=(motor_control_x_pos,350), length=200)
@@ -102,20 +104,24 @@ class Frame(wx.Frame):
             
     def sliderUpdate(self, event=None):
         self.ptgain = self.ptgain_slider.getval()
-        #self.ptdamping = self.ptdamping_slider.getval()
+        self.ptdamping = self.ptdamping_slider.getval()
         self.ptaccel = self.ptaccel_slider.getval()
+        #self.ptminaccel = self.ptminaccel_slider.getval()
         self.focusgain = self.focusgain_slider.getval()
-        #self.focusdamping = self.focusdamping_slider.getval()
+        self.focusdamping = self.focusdamping_slider.getval()
         self.focusaccel = self.focusaccel_slider.getval()
+        #self.focusminaccel = self.focusminaccel_slider.getval()
         self.scanner_interval = self.scanner_interval_slider.getval()*np.pi/180. # convert to radians
         self.scanner_pause = self.scanner_pause_slider.getval()
         
         rospy.set_param('ptgain', self.ptgain)
-        #rospy.set_param('ptdamping', self.ptdamping)
+        rospy.set_param('ptdamping', self.ptdamping)
         rospy.set_param('ptaccel', self.ptaccel)
+        #rospy.set_param('ptminaccel', self.ptminaccel)
         rospy.set_param('focusgain', self.focusgain)
-        #rospy.set_param('focusdamping', self.focusdamping)
+        rospy.set_param('focusdamping', self.focusdamping)
         rospy.set_param('focusaccel', self.focusaccel)
+        #rospy.set_param('focusminaccel', self.focusminaccel)
         rospy.set_param('scanner_interval', self.scanner_interval)
         rospy.set_param('scanner_pause', self.scanner_pause)
         
