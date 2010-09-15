@@ -203,7 +203,6 @@ class MotorCom:
                 # discrete low pass filter on desired position (wikipedia)
                 self.alpha = dt / (self.damping + dt)
                 self.m_des_pos_filtered = self.alpha*m_des_pos + (1.-self.alpha)*self.m_des_pos_filtered
-                print m_des_pos, self.m_des_pos_filtered, self.pos, dt
                 self.m_des_vel_filtered = self.alpha*m_des_vel + (1.-self.alpha)*self.m_des_vel_filtered
                 
                 
@@ -235,6 +234,7 @@ class MotorCom:
                         self.vel = vel_des
                 
                 self.vel = vel_des
+                print self.m_des_pos_filtered-self.pos, vel_des, m_des_vel
                 
                 #self.vel = self.vel + (vel_des - self.vel)*(1-damp_factor)
                 

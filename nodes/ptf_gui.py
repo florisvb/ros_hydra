@@ -51,6 +51,7 @@ class SliderPackage:
         
 # TODO:
 # 1. add a way to save and load the parameters       
+# negative numbers and sliderpackage dont work!
 
 class Frame(wx.Frame):
     def __init__(self):
@@ -75,8 +76,8 @@ class Frame(wx.Frame):
         #self.focusminaccel_slider = SliderPackage(panel, 'focus min accel', .1, 0, .1, pos=(motor_control_x_pos,300), length=200)
         
         # scanning parameters
-        self.scanner_interval_slider = SliderPackage(panel, 'scan interval (deg)', 5, 0, 45, pos=(motor_control_x_pos,350), length=200)
-        self.scanner_pause_slider = SliderPackage(panel, 'scan pause (sec)', 0.5, 0, 4, pos=(motor_control_x_pos,400), length=200)
+        self.motoradjust_pan_slider = SliderPackage(panel, 'motoradjust pan', 0, -.05, .05, pos=(motor_control_x_pos,350), length=200)
+        self.motoradjust_tilt_slider = SliderPackage(panel, 'motoradjust tilt', 0, -.05, .05, pos=(motor_control_x_pos,400), length=200)
         
         
         
@@ -111,8 +112,8 @@ class Frame(wx.Frame):
         self.focusdamping = self.focusdamping_slider.getval()
         self.focusaccel = self.focusaccel_slider.getval()
         #self.focusminaccel = self.focusminaccel_slider.getval()
-        self.scanner_interval = self.scanner_interval_slider.getval()*np.pi/180. # convert to radians
-        self.scanner_pause = self.scanner_pause_slider.getval()
+        self.motoradjust_pan = self.motoradjust_pan_slider.getval()
+        self.motoradjust_tilt = self.motoradjust_tilt_slider.getval()
         
         rospy.set_param('ptgain', self.ptgain)
         rospy.set_param('ptdamping', self.ptdamping)
@@ -122,9 +123,9 @@ class Frame(wx.Frame):
         rospy.set_param('focusdamping', self.focusdamping)
         rospy.set_param('focusaccel', self.focusaccel)
         #rospy.set_param('focusminaccel', self.focusminaccel)
-        rospy.set_param('scanner_interval', self.scanner_interval)
-        rospy.set_param('scanner_pause', self.scanner_pause)
-        
+        rospy.set_param('motoradjust_pan', self.motoradjust_pan)
+        rospy.set_param('motoradjust_tilt', self.motoradjust_tilt)
+        print self.motoradjust_pan
         self.pub.publish(Bool(True))
         
 if __name__ == '__main__':
