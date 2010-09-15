@@ -628,6 +628,11 @@ class PanTiltFocusControl:
         #print self.motoradjust_pan*distc
         pan_pos = np.arctan2(u+offset[0],1) # focal length of 1, arbitrary
         tilt_pos = np.arctan2(v+offset[1],1)
+        
+        pt_pos = self.distort_ptf(obj_pos, pan_pos, tilt_pos)
+        pan_pos = pt_pos[0]
+        tilt_pos = pt_pos[1]
+        
         focus_pos = self.focus.calc_focus(obj_pos) + offset[2]
         motor_coords = [pan_pos, tilt_pos, focus_pos]
         #print motor_coords
