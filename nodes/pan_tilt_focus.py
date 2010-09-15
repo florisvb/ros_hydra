@@ -232,7 +232,7 @@ class PanTiltFocusControl:
                 self.ps3values_select = True
             if ps3values.select is False and self.ps3values_select is True:
                 self.ps3values_select = False
-                self.save_calibration_data(calibrate=False, motor='pt')
+                self.save_calibration_data(calibrate=False)
                 
             if ps3values.start is True:
                 self.ps3values_start = True
@@ -242,26 +242,8 @@ class PanTiltFocusControl:
                 self.calibrate_pt(self.calibration_raw_6d)
                 
             if ps3values.playstation is False and self.ps3values.playstation is True:
-                self.save_calibration_data_to_file(motor='pt')
+                self.save_calibration_data_to_file()
                 
-        # R1: calibration FOCUS
-        if ps3values.R1 is True:
-            
-            if ps3values.select is True:
-                self.ps3values_select = True
-            if ps3values.select is False and self.ps3values_select is True:
-                self.ps3values_select = False
-                self.save_calibration_data(calibrate=False, motor='focus')
-                
-            if ps3values.start is True:
-                self.ps3values_start = True
-            if ps3values.start is False and self.ps3values_start is True:
-                self.ps3values_start = False
-                self.dummy = False
-                self.calibrate_focus()
-                
-            if ps3values.playstation is False and self.ps3values.playstation is True:
-                self.save_calibration_data_to_file(motor='focus')
                 
         self.ps3values = ps3values
         self.generate_control()
@@ -286,7 +268,8 @@ class PanTiltFocusControl:
                     self.calibrate_pt()
                     self.calibrate_focus()
                 if 1:
-                    self.calibrate_pt_distorted()
+                    errors = self.calibrate_pt_distorted()
+                    print 'errors: ', errors
                     self.calibrate_focus()
                     
             #original_avg_2d_reprojection_error, original_avg_focus_reprojection_error = self.calc_reprojection_error(self.calibration_raw_6d)
@@ -340,7 +323,7 @@ class PanTiltFocusControl:
     
         # do initial guess
         self.calibrate_pt()
-        
+        print 'initial camera_center: ', self.camera_center
         data = self.calibration_raw_6d
         
         def fmin_func(distortions):
@@ -352,7 +335,7 @@ class PanTiltFocusControl:
             for i in range(data_undistorted.shape[0]):
                 data_undistorted[i,0:2] = self.undistort_ptf(data[i,3:6], data[i,0], data[i,1])
             errs = self.calibrate_pt(data_undistorted)
-            print errs
+            print 'error: ', errs
             return errs
         
         # run loop
@@ -360,6 +343,9 @@ class PanTiltFocusControl:
         tmp = scipy.optimize.fmin( fmin_func, distortions, full_output = 1, disp=0)
         distortions = tmp[0]
         fmin_func(distortions)
+        
+        print distortions
+        print self.camera_center
         
         return tmp[1]
         
@@ -399,17 +385,6 @@ class PanTiltFocusControl:
         reprojected_points2D_arr = cvNumpy.mat_to_array(reprojected_points2D)
         
         errors = [ np.linalg.norm(points2D_arr[i,:] - reprojected_points2D_arr[i,:]) for i in range(points2D_arr.shape[0]) ]
-        print 'avg reprojection error'
-        print np.mean(errors)
-        
-        
-        
-        print 'camera calibration results: '
-        print 'K: '
-        print self.K
-        print 'distCoeffs: '
-        print self.distCoeffs
-        
         
         # inverse Mhat:
         self.Mhatinv = np.linalg.pinv(self.Mhat)
