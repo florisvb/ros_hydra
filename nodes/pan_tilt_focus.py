@@ -34,7 +34,7 @@ def as_column(x):
 
 class PanTiltFocusControl:
 
-    def __init__(self, dummy=True, dummy_focus=True, ptcal_file=None, focuscal_file=None):
+    def __init__(self, dummy=True, calibration=None):
         
         # flydra object stuff
         self.pref_obj_id = None      
@@ -44,12 +44,7 @@ class PanTiltFocusControl:
         
         # calibration info
         self.calibration_raw_6d = None
-        self.focus_calibration = None
-        if focuscal_file is None:
-            self.dummy_focus = True
-        else:
-            self.dummy_focus = False
-        if ptcal_file is None:
+        if calibration is None:
             self.dummy = True
         else:
             self.dummy = False
@@ -81,14 +76,10 @@ class PanTiltFocusControl:
         
         
         
-        if ptcal_file is not None:
-            self.load_calibration_data(filename=ptcal_file, motor='pt')
+        if calibration is not None:
+            self.load_calibration_data(filename=calibration)
             if np.shape(self.calibration_raw_6d)[0] <= 4:
                 self.dummy = True
-        if focuscal_file is not None:
-            self.load_calibration_data(filename=focuscal_file, motor='focus')
-            if np.shape(self.focus_calibration)[0] <= 4:
-                self.dummy_focus = True
         if dummy is True:
             self.dummy = True
         self.calibrate()
@@ -113,14 +104,14 @@ class PanTiltFocusControl:
     #################  CALLBACKS  ####################################
     
     def parameterupdate(self, data=True):
-        if data is True:
-            if not rospy.has_param('scanner_interval'):
-                rospy.set_param('scanner_interval', 5*np.pi/180.)
-            self.scanner_interval = rospy.get_param('scanner_interval')
-            
-            if not rospy.has_param('scanner_pause'):
-                rospy.set_param('scanner_pause', 0.5)
-            self.scanner_pause = rospy.get_param('scanner_pause')
+        if not rospy.has_param('motoradjust_pan'):
+            rospy.set_param('motoradjust_pan', 0)
+        self.motoradjust_pan = rospy.get_param('motoradjust_pan')
+        
+        if not rospy.has_param('motoradjust_tilt'):
+            rospy.set_param('motoradjust_tilt', 0)
+        self.motoradjust_tilt = rospy.get_param('motoradjust_tilt')
+        print 'parameter update', self.motoradjust_pan
         
     def flydra_callback(self, super_packet):
 
@@ -292,13 +283,15 @@ class PanTiltFocusControl:
             # initially: calibrate with all data:
             #self.calibrate_pt(self.calibration_raw_6d)
             if self.calibration_raw_6d is not None:
-                focal_length=1
-                tmp = scipy.optimize.fmin( self.calibrate_pt, focal_length, full_output = 1, disp=0)
-                focal_length = tmp[0]
                 
-                self.calibrate_pt(focal_length=focal_length)
-            if self.focus_calibration is not None:
-                self.calibrate_focus()
+                if 0:
+                    focal_length=1
+                    tmp = scipy.optimize.fmin( self.calibrate_pt, focal_length, full_output = 1, disp=0)
+                    focal_length = tmp[0]
+                    self.calibrate_pt(focal_length=focal_length)
+                if 1:
+                    self.calibrate_pt(1)
+                    self.calibrate_focus()
             #original_avg_2d_reprojection_error, original_avg_focus_reprojection_error = self.calc_reprojection_error(self.calibration_raw_6d)
             
             if 0:
@@ -360,7 +353,7 @@ class PanTiltFocusControl:
         tvec = cvNumpy.array_to_mat(np.zeros(3))
         distCoeffs = cvNumpy.array_to_mat(np.zeros(4))
         cv.FindExtrinsicCameraParams2(points3D, points2D, K, distCoeffs, rvec, tvec)
-        
+        # "align_points" ? in flydra
         # convert rotation vector to rotation matrix
         rmat = cvNumpy.array_to_mat(np.zeros([3,3]))
         cv.Rodrigues2( rvec, rmat )
@@ -422,10 +415,10 @@ class PanTiltFocusControl:
         
     def calibrate_focus(self, data=None):
         if data is None:
-            data = self.focus_calibration
+            data = self.calibration_raw_6d
         data3d = data[:,3:6]
         data2d = data[:,0:2]
-        self.focus.calibrate(data=self.focus_calibration, camera_center=self.camera_center, plot=True)
+        self.focus.calibrate(data=data, camera_center=self.camera_center, plot=True)
         return
         
     def calc_reprojection_error(self,data):
@@ -476,7 +469,7 @@ class PanTiltFocusControl:
         actual_dist_to_object = np.sqrt(distc**2 + self.pan.center_displacement**2 + self.tilt.center_displacement**2)
         return actual_dist_to_object
         
-    def save_calibration_data(self, calibrate=True, motor='pt'):
+    def save_calibration_data(self, calibrate=True):
         # [motors, fly_position]
         if self.pref_obj_id is None:
             print 'no active object id... no data saved'
@@ -485,35 +478,19 @@ class PanTiltFocusControl:
                                  self.pref_obj_position[0], self.pref_obj_position[1], self.pref_obj_position[2]]])
         print 'adding new calibration data: ', new_cal_data
         
-        if motor == 'pt':
-            if self.calibration_raw_6d is None:
-                self.calibration_raw_6d = new_cal_data
-            else:
-                self.calibration_raw_6d = np.vstack((self.calibration_raw_6d,new_cal_data))
-                
-            print
-            print self.calibration_raw_6d
-            print self.calibration_raw_6d.shape
+        if self.calibration_raw_6d is None:
+            self.calibration_raw_6d = new_cal_data
+        else:
+            self.calibration_raw_6d = np.vstack((self.calibration_raw_6d,new_cal_data))
             
-            if calibrate:
-                if self.calibration_raw_6d.shape[0] >= 4:
-                    self.dummy = False
-                    self.calibrate()
-                
-        if motor == 'focus':        
-            if self.focus_calibration is None:
-                self.focus_calibration = new_cal_data
-            else:
-                self.focus_calibration = np.vstack((self.focus_calibration,new_cal_data))
-                
-            print
-            print self.focus_calibration
-            print self.focus_calibration.shape
-            
-            if calibrate:
-                if self.focus_calibration.shape[0] >= 4:
-                    self.dummy = False
-                    self.calibrate()
+        print
+        print self.calibration_raw_6d
+        print self.calibration_raw_6d.shape
+        
+        if calibrate:
+            if self.calibration_raw_6d.shape[0] >= 4:
+                self.dummy = False
+                self.calibrate()
                 
     def calc_distc(self,pos_3d):
         #print pos_3d, self.camera_center
@@ -533,19 +510,13 @@ class PanTiltFocusControl:
         elif motor == 'focus': 
             self.focus_calibration = pickle.load(fd)
             
-    def save_calibration_data_to_file(self, filename=None, motor='pt'):
+    def save_calibration_data_to_file(self, filename=None):
         if filename is None:
-            if motor == 'pt':
-                filename = time.strftime("ptf_calibration_%Y%m%d_%H%M%S",time.localtime())
-            if motor == 'focus':
-                filename = time.strftime("focus_calibration_%Y%m%d_%H%M%S",time.localtime())
+            filename = time.strftime("ptf_calibration_%Y%m%d_%H%M%S",time.localtime())
         print 'saving calibration to file: ', filename
         fname = (filename)  
         fd = open( fname, mode='w' )
-        if motor == 'pt':
-            pickle.dump(self.calibration_raw_6d, fd)
-        if motor == 'focus':
-            pickle.dump(self.focus_calibration, fd)
+        pickle.dump(self.calibration_raw_6d, fd)
         return 1
 
     def scan(self, increment=5.0*np.pi/180.0, pause=0.1, save_data=True):
@@ -615,16 +586,28 @@ class PanTiltFocusControl:
         #distc = np.linalg.norm(q) # equivalent to above function call
         #print 'pos_3d: ', obj_pos
         #print 'distc: ', r,s,t
+        #print self.motoradjust_pan*distc
         pan_pos = np.arctan2(u+offset[0],1) # focal length of 1, arbitrary
         tilt_pos = np.arctan2(v+offset[1],1)
-        if self.dummy_focus:
-            focus_pos = offset[2]
-        else:
-            focus_pos = self.focus.calc_focus(obj_pos, offset=offset[2])
+        focus_pos = self.focus.calc_focus(obj_pos, offset=offset[2])
         motor_coords = [pan_pos, tilt_pos, focus_pos]
         #print motor_coords
         
         return motor_coords
+        
+    def to_motor_coords_vel(self, obj_pos, obj_vel):
+        
+        dt = 1. # arbitrary, and irrelevant (gets cancelled out)
+        
+        obj_pos_1 = obj_pos
+        obj_pos_2 = obj_pos+obj_vel*dt
+        
+        motor_pos_1 = np.array(self.to_motor_coords(obj_pos_1))
+        motor_pos_2 = np.array(self.to_motor_coords(obj_pos_2))
+        
+        motor_vel = (motor_pos_2 - motor_pos_1) / dt
+        
+        return motor_vel
         
     def to_world_coords(self, pan_pos, tilt_pos, focus_pos, pub=False):
         # takes three motor positions, and returns 3D point
@@ -672,20 +655,17 @@ class PanTiltFocusControl:
             self.predicted_obj_pos = self.pref_obj_position + self.pref_obj_velocity*(self.pref_obj_latency+motor_latency)
             obj_pos = np.hstack((self.predicted_obj_pos, [1]))
             motor_pos = self.to_motor_coords(obj_pos, offset=offset)
-            m_des_vel = self.to_motor_coords(self.pref_obj_velocity)
-            #print obj_pos, '*'
-            #except:
-                #self.reset()
+            m_des_vel = self.to_motor_coords_vel(self.predicted_obj_pos, self.pref_obj_velocity)
+                
+                
         if self.pref_obj_id is None and self.dummy is False:
             #m_offset = self.to_motor_coords([0,0,0], offset=offset)
             motor_pos = np.array([self.pan.home,self.tilt.home,self.focus.home]) + offset
-            m_des_vel = self.to_motor_coords([0,0,0])
+            m_des_vel = [0,0,0]
             
         if self.dummy is True:
             motor_pos = np.array([self.pan.home,self.tilt.home,self.focus.home]) + offset
             m_des_vel = [0,0,0]
-            
-        
             
         
         #print 'motor pos: ', motor_pos
@@ -721,14 +701,12 @@ class PanTiltFocusControl:
 if __name__ == '__main__':
 
     parser = OptionParser()
-    parser.add_option("--ptcal", type="string", dest="ptcal_file", default=None,
+    parser.add_option("--calibration", type="string", dest="calibration", default=None,
                         help="camera calibration filename, raw 6d points collected using this same program")
-    parser.add_option("--focuscal", type="string", dest="focuscal_file", default=None,
-                        help="camera focus calibration filename, raw 6d points collected using this same program")
     parser.add_option("--dummy", action='store_true', dest="dummy", default=False,
                         help="run using a dummy calibration, for testing")
     (options, args) = parser.parse_args()
 
-    ptf_ctrl = PanTiltFocusControl(ptcal_file=options.ptcal_file, focuscal_file=options.focuscal_file, dummy=options.dummy)
+    ptf_ctrl = PanTiltFocusControl(calibration=options.calibration, dummy=options.dummy)
     ptf_ctrl.run()
         
