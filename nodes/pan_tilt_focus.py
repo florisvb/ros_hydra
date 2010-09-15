@@ -80,8 +80,6 @@ class PanTiltFocusControl:
             self.load_calibration_data(filename=calibration)
             if np.shape(self.calibration_raw_6d)[0] <= 4:
                 self.dummy = True
-        if dummy is True:
-            self.dummy = True
         self.calibrate()
         
         
@@ -285,13 +283,12 @@ class PanTiltFocusControl:
             if self.calibration_raw_6d is not None:
                 
                 if 0:
-                    focal_length=1
-                    tmp = scipy.optimize.fmin( self.calibrate_pt, focal_length, full_output = 1, disp=0)
-                    focal_length = tmp[0]
-                    self.calibrate_pt(focal_length=focal_length)
-                if 1:
-                    self.calibrate_pt(1)
+                    self.calibrate_pt()
                     self.calibrate_focus()
+                if 1:
+                    self.calibrate_pt_distorted()
+                    self.calibrate_focus()
+                    
             #original_avg_2d_reprojection_error, original_avg_focus_reprojection_error = self.calc_reprojection_error(self.calibration_raw_6d)
             
             if 0:
@@ -339,9 +336,35 @@ class PanTiltFocusControl:
         self.pub_camera_center.publish(Point(self.camera_center[0], self.camera_center[1], self.camera_center[2]))
         return
         
+    def calibrate_pt_distorted(self):
+    
+        # do initial guess
+        self.calibrate_pt()
         
-    def calibrate_pt(self, focal_length):
-        data = None
+        data = self.calibration_raw_6d
+        
+        def fmin_func(distortions):
+            self.pan.center_displacement = distortions[0]
+            self.pan.angular_displacement = distortions[1]
+            self.tilt.center_displacement = distortions[2]
+            self.tilt.angular_displacement = distortions[3]
+            data_undistorted = copy.copy(data)
+            for i in range(data_undistorted.shape[0]):
+                data_undistorted[i,0:2] = self.undistort_ptf(data[i,3:6], data[i,0], data[i,1])
+            errs = self.calibrate_pt(data_undistorted)
+            print errs
+            return errs
+        
+        # run loop
+        distortions = [self.pan.center_displacement, self.pan.angular_displacement, self.tilt.center_displacement, self.tilt.angular_displacement]
+        tmp = scipy.optimize.fmin( fmin_func, distortions, full_output = 1, disp=0)
+        distortions = tmp[0]
+        fmin_func(distortions)
+        
+        return tmp[1]
+        
+        
+    def calibrate_pt(self, data=None, focal_length=1.):
         if data is None:
             data = self.calibration_raw_6d
         points3D = cvNumpy.array_to_mat(np.asarray( data[:,3:6] ))
@@ -362,8 +385,8 @@ class PanTiltFocusControl:
         self.R = cvNumpy.mat_to_array(rmat)
         self.t = cvNumpy.mat_to_array(tvec)
         self.K = cvNumpy.mat_to_array(K)
-        Rt = np.hstack((self.R,self.t.T))
-        self.P = np.dot( self.K, Rt )
+        self.Rt = np.hstack((self.R,self.t.T))
+        self.P = np.dot( self.K, self.Rt )
         self.Mhat = self.P
         self.camera_center = camera_math.center(self.P)[:,0]
         self.distCoeffs = cvNumpy.mat_to_array(distCoeffs)
@@ -469,6 +492,23 @@ class PanTiltFocusControl:
         actual_dist_to_object = np.sqrt(distc**2 + self.pan.center_displacement**2 + self.tilt.center_displacement**2)
         return actual_dist_to_object
         
+    def undistort_ptf(self, obj_pos, pan_pos, tilt_pos):
+        #obj_pos_in_ptf_coords = self.to_ptf_coords(obj_pos, pan_pos, tilt_pos)
+        #distc = obj_pos_in_ptf_coords[2]
+        distc = self.calc_distc(obj_pos)
+        pan_pos_undistorted = np.arcsin( self.pan.center_displacement / distc ) + self.pan.angular_displacement + pan_pos
+        tilt_pos_undistorted = np.arcsin( self.tilt.center_displacement / distc ) + self.tilt.angular_displacement + tilt_pos
+        undistorted = [pan_pos_undistorted, tilt_pos_undistorted]
+        return undistorted
+        
+    def distort_ptf(self, obj_pos, pan_pos, tilt_pos):
+        distc = self.calc_distc(obj_pos)
+        pan_pos_distorted = pan_pos - (np.arcsin( self.pan.center_displacement / distc ) + self.pan.angular_displacement)
+        tilt_pos_distorted = tilt_pos - (np.arcsin( self.tilt.center_displacement / distc ) + self.tilt.angular_displacement)
+        distorted = [pan_pos_distorted, tilt_pos_distorted]
+        return distorted
+        
+        
     def save_calibration_data(self, calibrate=True):
         # [motors, fly_position]
         if self.pref_obj_id is None:
@@ -495,7 +535,6 @@ class PanTiltFocusControl:
     def calc_distc(self,pos_3d):
         #print pos_3d, self.camera_center
         distc = scipy.linalg.norm( pos_3d[0:3]-self.camera_center ) # (might need to check orientation of vectors)
-        
         return distc
             
     def load_calibration_data(self, filename=None, motor='pt'):
@@ -589,11 +628,33 @@ class PanTiltFocusControl:
         #print self.motoradjust_pan*distc
         pan_pos = np.arctan2(u+offset[0],1) # focal length of 1, arbitrary
         tilt_pos = np.arctan2(v+offset[1],1)
-        focus_pos = self.focus.calc_focus(obj_pos, offset=offset[2])
+        focus_pos = self.focus.calc_focus(obj_pos) + offset[2]
         motor_coords = [pan_pos, tilt_pos, focus_pos]
         #print motor_coords
         
         return motor_coords
+        
+    def to_ptf_coords(self, obj_pos, pan_pos=None, tilt_pos=None):
+    
+        #if len(obj_pos) == 3:
+        #    obj_pos = np.hstack((obj_pos, [1]))
+
+        if pan_pos is None:
+            pan_pos = self.pan.pos
+        if tilt_pos is None: 
+            tilt_pos = self.tilt.pos            
+
+        obj_in_static_ptf_coords = np.dot(self.R,obj_pos)
+        print obj_in_static_ptf_coords
+        
+        ## WRONG
+        Rn_pan = camera_math.build_rot_mat([0,1,0], pan_pos)
+        Rn_tilt = camera_math.build_rot_mat([1,0,0], tilt_pos)
+        Rn = np.dot(Rn_pan, Rn_tilt)
+        
+        obj_in_current_ptf_coords = np.dot(Rn, obj_in_static_ptf_coords) + self.t
+        
+        return obj_in_current_ptf_coords
         
     def to_motor_coords_vel(self, obj_pos, obj_vel):
         
