@@ -222,14 +222,9 @@ class MotorCom:
                 #    damp_factor = 0.8
                 #
                 
-                if 0:
+                if 1:
                     if np.abs(accel) > self.max_accel:# and (m_des_pos-self.pos) > 2.*np.pi/180.:
-                        if (m_des_pos-self.pos) < 2.*np.pi/180.:
-                            pass
-                        #print 'max accel: ', self.max_accel
                         self.vel += self.max_accel*np.sign(accel)
-                    elif np.abs(accel) < self.min_accel:
-                        self.vel += 0.0 # if acceleration is small, don't bother changing it.. smoother operation?
                     else:
                         self.vel = vel_des
                 

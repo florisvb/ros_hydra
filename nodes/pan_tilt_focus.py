@@ -40,7 +40,8 @@ class PanTiltFocusControl:
         self.pref_obj_id = None      
         self.pref_obj_position = None
         self.pref_obj_velocity = None
-        self.pref_obj_latency = None            
+        self.pref_obj_latency = None     
+        self.vel_filtered = 0         
         
         # calibration info
         self.calibration_raw_6d = None
@@ -102,14 +103,13 @@ class PanTiltFocusControl:
     #################  CALLBACKS  ####################################
     
     def parameterupdate(self, data=True):
-        if not rospy.has_param('motoradjust_pan'):
-            rospy.set_param('motoradjust_pan', 0)
-        self.motoradjust_pan = rospy.get_param('motoradjust_pan')
-        
-        if not rospy.has_param('motoradjust_tilt'):
-            rospy.set_param('motoradjust_tilt', 0)
-        self.motoradjust_tilt = rospy.get_param('motoradjust_tilt')
-        print 'parameter update', self.motoradjust_pan
+        if not rospy.has_param('lead'):
+            rospy.set_param('lead', 0)
+            rospy.set_param('leaddamping', 0)
+        self.lead = rospy.get_param('lead')
+        self.damping = rospy.get_param('leaddamping')
+        dt = 0.03
+        self.alpha = dt / (self.damping + dt)
         
     def flydra_callback(self, super_packet):
 
@@ -333,7 +333,7 @@ class PanTiltFocusControl:
             self.tilt.angular_displacement = distortions[3]
             data_undistorted = copy.copy(data)
             for i in range(data_undistorted.shape[0]):
-                data_undistorted[i,0:2] = self.undistort_ptf(data[i,3:6], data[i,0], data[i,1])
+                data_undistorted[i,0:2] = self.undistort_ptf(data[i,0], data[i,1], obj_pos=data[i,3:6])
             errs = self.calibrate_pt(data_undistorted)
             print 'error: ', errs
             return errs
@@ -467,17 +467,20 @@ class PanTiltFocusControl:
         actual_dist_to_object = np.sqrt(distc**2 + self.pan.center_displacement**2 + self.tilt.center_displacement**2)
         return actual_dist_to_object
         
-    def undistort_ptf(self, obj_pos, pan_pos, tilt_pos):
+    def undistort_ptf(self, pan_pos, tilt_pos, obj_pos=None, distc=None):
         #obj_pos_in_ptf_coords = self.to_ptf_coords(obj_pos, pan_pos, tilt_pos)
         #distc = obj_pos_in_ptf_coords[2]
-        distc = self.calc_distc(obj_pos)
+        
+        if distc is None:
+            distc = self.calc_distc(obj_pos)
         pan_pos_undistorted = np.arcsin( self.pan.center_displacement / distc ) + self.pan.angular_displacement + pan_pos
         tilt_pos_undistorted = np.arcsin( self.tilt.center_displacement / distc ) + self.tilt.angular_displacement + tilt_pos
         undistorted = [pan_pos_undistorted, tilt_pos_undistorted]
         return undistorted
         
-    def distort_ptf(self, obj_pos, pan_pos, tilt_pos):
-        distc = self.calc_distc(obj_pos)
+    def distort_ptf(self, pan_pos, tilt_pos, obj_pos=None, distc=None):
+        if distc is None:
+            distc = self.calc_distc(obj_pos)
         pan_pos_distorted = pan_pos - (np.arcsin( self.pan.center_displacement / distc ) + self.pan.angular_displacement)
         tilt_pos_distorted = tilt_pos - (np.arcsin( self.tilt.center_displacement / distc ) + self.tilt.angular_displacement)
         distorted = [pan_pos_distorted, tilt_pos_distorted]
@@ -604,7 +607,7 @@ class PanTiltFocusControl:
         pan_pos = np.arctan2(u+offset[0],1) # focal length of 1, arbitrary
         tilt_pos = np.arctan2(v+offset[1],1)
         
-        pt_pos = self.distort_ptf(obj_pos, pan_pos, tilt_pos)
+        pt_pos = self.distort_ptf(pan_pos, tilt_pos, obj_pos=obj_pos)
         pan_pos = pt_pos[0]
         tilt_pos = pt_pos[1]
         
@@ -663,10 +666,11 @@ class PanTiltFocusControl:
         u = np.tan(pan_pos)
         v = np.tan(tilt_pos)
         
+        undistorted = self.undistort_ptf(u, v, distc=distc)
         
         c1 = self.camera_center
 
-        x2d = (u,v,1.0)
+        x2d = (undistorted[0],undistorted[1],1.0)
         c2 = numpy.dot(self.Mhatinv, as_column(x2d))[:,0]
         c2 = c2[:3]/c2[3]
 
@@ -677,7 +681,6 @@ class PanTiltFocusControl:
         #print pos_3d
         #print pos_3d
         if pub is True:
-            print pan_pos, tilt_pos, focus_pos, pos_3d
             self.pub_ptf_3d.publish(Point(pos_3d[0], pos_3d[1], pos_3d[2]))
         
         return pos_3d
@@ -688,15 +691,22 @@ class PanTiltFocusControl:
     
         offset = np.array([self.pan.pos_offset, self.tilt.pos_offset, self.focus.pos_offset])
         
+        
+        
         # predict fly position:
         if self.pref_obj_id is not None and self.dummy is False:
+            vel_in_motor_coords = self.to_motor_coords_vel(self.pref_obj_position, self.pref_obj_velocity)
+            self.vel_filtered = self.alpha*vel_in_motor_coords + (1.-self.alpha)*self.vel_filtered
             #print self.pref_obj_id, self.pref_obj_position, self.pref_obj_velocity, self.pref_obj_latency
             #try:
             motor_latency = np.min([self.pan.latency, self.tilt.latency, self.focus.latency]) 
             self.predicted_obj_pos = self.pref_obj_position + self.pref_obj_velocity*(self.pref_obj_latency+motor_latency)
             obj_pos = np.hstack((self.predicted_obj_pos, [1]))
-            motor_pos = self.to_motor_coords(obj_pos, offset=offset)
-            m_des_vel = self.to_motor_coords_vel(self.predicted_obj_pos, self.pref_obj_velocity)
+            
+            lead_offset = np.array([self.lead, self.lead, 0])*self.vel_filtered
+            
+            motor_pos = self.to_motor_coords(obj_pos, offset=offset) + lead_offset
+            m_des_vel = vel_in_motor_coords
                 
                 
         if self.pref_obj_id is None and self.dummy is False:
@@ -708,6 +718,7 @@ class PanTiltFocusControl:
             motor_pos = np.array([self.pan.home,self.tilt.home,self.focus.home]) + offset
             m_des_vel = [0,0,0]
             
+        
         
         #print 'motor pos: ', motor_pos
         #print 'motor offset: ', m_offset
@@ -725,7 +736,9 @@ class PanTiltFocusControl:
             
         # publish best knowledge of points - should be a steady stream if the ps3 controller is running, otherwise should be in the pan, tilt, focus, position callbacks, but currently that would lead to three callbacks, which is ugly.
         #self.pub_ptf_3d.publish(Point(self.pan.pos, self.tilt.pos, self.focus.pos))
-        self.to_world_coords(self.pan.pos, self.tilt.pos, self.focus.pos)
+        
+        # DOES NOT HAVE UNDO DISTORT!!!
+        self.to_world_coords(self.pan.pos, self.tilt.pos, self.focus.pos, pub=True)
         
     def reset(self):
         # flydra object stuff
@@ -733,7 +746,7 @@ class PanTiltFocusControl:
         self.pref_obj_position = None
         self.pref_obj_velocity = None
         self.pref_obj_latency = None
-        
+        self.vel_filtered = 0
         
         
     def run(self):
