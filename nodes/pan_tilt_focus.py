@@ -34,7 +34,9 @@ def as_column(x):
 
 class PanTiltFocusControl:
 
-    def __init__(self, dummy=True, calibration=None):
+    def __init__(self, dummy=True, calibration=None, static=False):
+    
+        self.static = static
         
         # flydra object stuff
         self.pref_obj_id = None      
@@ -268,8 +270,13 @@ class PanTiltFocusControl:
                     self.calibrate_pt()
                     self.calibrate_focus()
                 if 1:
-                    errors = self.calibrate_pt_distorted()
-                    print 'errors: ', errors
+                    if not self.static:
+                        errors = self.calibrate_pt_distorted()
+                        print 'errors: ', errors
+                    if static:
+                        self.camera_center = self.calibration_raw_6d[0,3:6]
+                        self.Mhat = np.hstack((np.eye(3),np.array([[1],[1],[1]])))
+                        self.Mhatinv = np.linalg.pinv(self.Mhat)
                     self.calibrate_focus()
                     
             #original_avg_2d_reprojection_error, original_avg_focus_reprojection_error = self.calc_reprojection_error(self.calibration_raw_6d)
@@ -759,8 +766,10 @@ if __name__ == '__main__':
                         help="camera calibration filename, raw 6d points collected using this same program")
     parser.add_option("--dummy", action='store_true', dest="dummy", default=False,
                         help="run using a dummy calibration, for testing")
+    parser.add_option("--static", action='store_true', dest="static", default=False,
+                        help="static camera: basically run PTF with only the focus motor")
     (options, args) = parser.parse_args()
 
-    ptf_ctrl = PanTiltFocusControl(calibration=options.calibration, dummy=options.dummy)
+    ptf_ctrl = PanTiltFocusControl(calibration=options.calibration, dummy=options.dummy, static=options.static)
     ptf_ctrl.run()
         
