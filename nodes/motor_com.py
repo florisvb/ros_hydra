@@ -17,7 +17,7 @@ from optparse import OptionParser
 
 class MotorCom:
     
-    def __init__(self, motor, dummy=False):
+    def __init__(self, motor, dummy=False, zerostart=False):
     
         self.motor = motor
         self.dummy = dummy
@@ -26,6 +26,7 @@ class MotorCom:
         self.latency = 0.01
         self.m_des_vel_filtered = 0.
         self.m_des_pos_filtered = 0.
+        self.zerostart = zerostart
         
         #################################################
         # init motor
@@ -133,15 +134,23 @@ class MotorCom:
                     self.ps3values_playstation = False
                     print 'finding zeros... '
                     self.STOP_CTRL = True
-                    if self.motor != 'focus':
-                        self.limit_lo, self.limit_hi = self.m.findzeros()
-                        print 'limits: '
-                        print self.limit_lo, self.limit_hi
-                    if self.motor == 'focus':
-                        self.m.infinity(duration=2,speed=-10)
+                    
+                    if self.zerostart is True:
+                        self.m.zerostart()
                         self.limit_lo = 0.1
-                        self.limit_hi = 4
+                        self.limit_hi = 6
                         time.sleep(1)
+                    else:
+                        if self.motor != 'focus':
+                            self.limit_lo, self.limit_hi = self.m.findzeros()
+                            print 'limits: '
+                            print self.limit_lo, self.limit_hi
+                        if self.motor == 'focus':
+                            self.m.infinity(duration=2,speed=-10)
+                            self.limit_lo = 0.1
+                            self.limit_hi = 4
+                            time.sleep(1)
+                        
                     self.limit_lo = self.limit_lo + self.limit_buffer
                     self.limit_hi = self.limit_hi - self.limit_buffer
                     print '*'*80
@@ -261,9 +270,11 @@ if __name__ == '__main__':
                         help="motor identifier, ie. pan, tilt, or focus")
     parser.add_option("--dummy", action="store_true", dest="dummy", default=False,
                         help="with dummy = True, will not attempt to talk to controller, but will return false motor values")
+    parser.add_option("--zerostart", action="store_true", dest="zerostart", default=False,
+                        help="zerostart uses stepper_motors.zerostart for zeroing routine")
     (options, args) = parser.parse_args()
     
-    motorcom = MotorCom(options.motor, dummy=options.dummy)
+    motorcom = MotorCom(options.motor, dummy=options.dummy, zerostart=options.zerostart)
     
     
     
