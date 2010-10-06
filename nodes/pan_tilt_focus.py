@@ -273,12 +273,20 @@ class PanTiltFocusControl:
                     if not self.static:
                         errors = self.calibrate_pt_distorted()
                         print 'errors: ', errors
-                    if static:
+                        self.calibrate_focus()
+                    if self.static:
                         self.camera_center = self.calibration_raw_6d[0,3:6]
                         self.Mhat = np.hstack((np.eye(3),np.array([[1],[1],[1]])))
                         self.Mhatinv = np.linalg.pinv(self.Mhat)
-                    self.calibrate_focus()
-                    
+                        
+                        # calibrate_focus
+                        data = self.calibration_raw_6d
+                        data3d = data[:,3:6]
+                        data2d = data[:,0:2]
+                        self.focus.calibrate_static(data=data, plot=True, guess=-5)
+                        
+        
+        
             #original_avg_2d_reprojection_error, original_avg_focus_reprojection_error = self.calc_reprojection_error(self.calibration_raw_6d)
             
             if 0:
